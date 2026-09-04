@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Lift" />
+  <title>Lift — Workout Tracker</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <main id="view" class="view"></main>
+    <nav id="tabbar" class="tabbar" hidden>
+      <a href="#/" data-tab="home" class="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/></svg>
+        <span>Workout</span>
+      </a>
+      <a href="#/history" data-tab="history" class="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+        <span>History</span>
+      </a>
+      <a href="#/exercises" data-tab="exercises" class="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5 4 9m2.5-2.5L9 4m-4.5 5L2 11.5M9 4l11 11m-5-13 2.5-2.5M15 2l2.5 2.5M20 15l2 2.5M20 15l-2.5 2.5M15 20l2.5 2.5M20 15 9 4"/></svg>
+        <span>Exercises</span>
+      </a>
+      <a href="#/stats" data-tab="stats" class="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+        <span>Stats</span>
+      </a>
+      <a href="#/settings" data-tab="settings" class="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.5.55.87 1.06 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Settings</span>
+      </a>
+    </nav>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <div id="sheet-root"></div>
+
+  <!-- core -->
+  <script src="js/utils.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/seed.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/router.js"></script>
+  <!-- views -->
+  <script src="js/views/home.js"></script>
+  <script src="js/views/routine-edit.js"></script>
+  <script src="js/views/workout.js"></script>
+  <script src="js/views/history.js"></script>
+  <script src="js/views/exercises.js"></script>
+  <script src="js/views/stats.js"></script>
+  <script src="js/views/settings.js"></script>
+  <!-- boot -->
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "Lift — Workout Tracker",
+  "short_name": "Lift",
+  "description": "Private strength-training tracker: routines, live workout logging, history, PRs and progress charts.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "categories": ["health", "fitness", "sports"],
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
