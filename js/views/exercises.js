@@ -85,6 +85,7 @@
           }
         }, [
           el('span.box', { html: on ? svg(ICON.check) : '' }),
+          UI.exerciseThumb(e, 36),
           el('div.grow', { style: { minWidth: 0 } }, [
             el('div.name', { text: e.name }),
             el('div.meta', { text: e.primary + ' · ' + e.equipment + (e.isCustom ? ' · custom' : '') })
@@ -197,7 +198,7 @@
           listHost.appendChild(el('a.list-item', {
             href: '#/exercise/' + e.id
           }, [
-            el('span.avatar', { text: U.initials(e.name) }),
+            UI.exerciseThumb(e, 40),
             el('div.grow', null, [
               el('div.name', { text: e.name }),
               el('div.meta', { text: e.primary + ' · ' + e.equipment + (best.e1rm ? ' · best ' + U.fmtNum(App.fmtW(best.e1rm)) + App.unit() : '') })
@@ -223,6 +224,7 @@
         el('span.title', { text: ex.name }),
         el('button.icon-btn', { html: svg(ICON.dots), 'aria-label': 'Options', onclick: function () { detailMenu(ex); } })
       ]));
+      if (ex.image) v.appendChild(el('img.ex-hero', { src: ex.image, alt: '' }));
       v.appendChild(el('div.muted.tiny', { text: ex.primary + ' · ' + ex.equipment + (ex.isCustom ? ' · custom' : ''), style: { margin: '0 2px 14px' } }));
 
       const bests = S.exerciseBests(id);

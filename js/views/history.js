@@ -77,6 +77,7 @@
         const prForEx = (w.prs || []).find(function (p) { return p.exerciseId === it.exerciseId; });
         const card = el('div.ex-card');
         card.appendChild(el('div.ex-head', null, [
+          UI.exerciseThumb(S.exercise(it.exerciseId), 34),
           el('a.ex-name', { text: S.exerciseName(it.exerciseId), href: '#/exercise/' + it.exerciseId }),
           prForEx ? el('span.pr-tag', { html: svg(ICON.trophy, ' style="width:13px;height:13px" fill="currentColor" stroke="none"') + ' PR' }) : null
         ]));

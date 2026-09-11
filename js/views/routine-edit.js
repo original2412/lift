@@ -72,6 +72,7 @@
       const card = el('div.ex-card');
 
       card.appendChild(el('div.ex-head', null, [
+        UI.exerciseThumb(ex, 34),
         el('span.ex-name', { text: ex ? ex.name : 'Removed exercise' }),
         el('button.icon-btn', { html: svg(ICON.dots), 'aria-label': 'Options', onclick: function () { itemMenu(it, idx); } })
       ]));

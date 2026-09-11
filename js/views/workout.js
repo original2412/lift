@@ -226,6 +226,7 @@
       const last = S.lastPerformance(it.exerciseId, a.id);
 
       card.appendChild(el('div.ex-head', null, [
+        el('a', { href: ex ? '#/exercise/' + ex.id : '#/workout' }, UI.exerciseThumb(ex, 34)),
         el('a.ex-name', { text: ex ? ex.name : 'Removed exercise', href: ex ? '#/exercise/' + ex.id : '#/workout' }),
         el('span.faint.tiny', { text: it.restSec ? U.fmtClock(it.restSec) + ' rest' : 'no rest' }),
         el('button.icon-btn', { html: svg(ICON.dots), 'aria-label': 'Options', onclick: function () { itemMenu(it, idx); } })

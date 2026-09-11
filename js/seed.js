@@ -143,17 +143,23 @@
       .replace(/^_+|_+$/g, '');
   }
 
+  // A handful of built-ins have no good public-domain demo photo (checked
+  // against the free-exercise-db dataset) — they fall back to an initials avatar.
+  var NO_IMAGE = { ex_pec_deck: 1, ex_pendlay_row: 1, ex_machine_row: 1, ex_nordic_curl: 1, ex_burpee: 1 };
+
   App.seed = {
     exercises: function () {
       return RAW.map(function (r) {
+        var id = slug(r[0]);
         return {
-          id: slug(r[0]),
+          id: id,
           name: r[0],
           primary: r[1],
           equipment: r[2],
           isCustom: false,
           // Cardio & carries are tracked as time/distance rather than reps.
           tracking: r[1] === 'Cardio' ? 'cardio' : 'weight',
+          image: NO_IMAGE[id] ? null : 'img/exercises/' + id + '.jpg',
           createdAt: Date.now()
         };
       });

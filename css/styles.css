@@ -180,6 +180,15 @@ select.input { appearance: none; -webkit-appearance: none; }
   display: grid; place-items: center; font-weight: 700; color: var(--accent);
   border: 1px solid var(--line); font-size: 15px;
 }
+.ex-thumb {
+  object-fit: cover; display: block; flex: 0 0 auto;
+  background: var(--bg-elev-2); border: 1px solid var(--line);
+}
+.ex-hero {
+  width: 100%; height: 190px; object-fit: cover; display: block;
+  border-radius: var(--radius); background: var(--bg-elev-2);
+  border: 1px solid var(--line); margin-bottom: 12px;
+}
 
 .section-label {
   font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;

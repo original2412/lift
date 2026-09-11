@@ -91,6 +91,22 @@
     }, ms || 1900);
   };
 
+  // ---- exercise thumbnail (photo if we have one, else initials avatar) ----
+  UI.exerciseThumb = function (ex, size) {
+    size = size || 40;
+    var radius = Math.max(8, Math.round(size * 0.27));
+    if (ex && ex.image) {
+      return UI.el('img.ex-thumb', {
+        src: ex.image, alt: '', loading: 'lazy',
+        style: { width: size + 'px', height: size + 'px', borderRadius: radius + 'px' }
+      });
+    }
+    return UI.el('span.avatar', {
+      text: U.initials(ex ? ex.name : '?'),
+      style: { width: size + 'px', height: size + 'px', borderRadius: radius + 'px', fontSize: Math.round(size * 0.38) + 'px' }
+    });
+  };
+
   // ---- haptics ----
   UI.buzz = function (pattern) {
     try { if (navigator.vibrate) navigator.vibrate(pattern || 15); } catch (e) {}
