@@ -50,8 +50,11 @@ self.addEventListener('fetch', (e) => {
   // bump. Falls back to the last cached copy when offline.
   const isShellFile = req.mode === 'navigate' || /\.(js|css|webmanifest)$/.test(url.pathname);
   if (isShellFile) {
+    // 'no-store' bypasses the browser's own HTTP cache too — GitHub Pages
+    // sends Cache-Control: max-age=600, which would otherwise make a
+    // "network-first" fetch silently return a stale same-tab response.
     e.respondWith(
-      fetch(req).then((res) => {
+      fetch(req, { cache: 'no-store' }).then((res) => {
         if (res && res.status === 200) {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(req, copy));
