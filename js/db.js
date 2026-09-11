@@ -14,7 +14,8 @@
     incLb: 5,
     theme: 'dark',
     wakeLock: true,
-    firstRunDone: false
+    firstRunDone: false,
+    builtinVersion: 0
   };
 
   // In-memory mirror of persisted data. Views read from here synchronously.

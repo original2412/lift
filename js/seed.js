@@ -148,6 +148,9 @@
   var NO_IMAGE = { ex_pec_deck: 1, ex_pendlay_row: 1, ex_machine_row: 1, ex_nordic_curl: 1, ex_burpee: 1 };
 
   App.seed = {
+    // Bump whenever RAW/NO_IMAGE data changes, so existing devices pick up
+    // the update (see app.js boot — built-ins get merged, customs untouched).
+    VERSION: 2,
     exercises: function () {
       return RAW.map(function (r) {
         var id = slug(r[0]);

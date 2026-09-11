@@ -53,9 +53,30 @@
   function boot() {
     DB.load();
 
-    if (!S.settings.firstRunDone || DB.state.exercises.length === 0) {
-      if (DB.state.exercises.length === 0) DB.state.exercises = App.seed.exercises();
-      DB.setSettings({ firstRunDone: true });
+    if (DB.state.exercises.length === 0) {
+      DB.state.exercises = App.seed.exercises();
+      DB.setSettings({ firstRunDone: true, builtinVersion: App.seed.VERSION });
+      DB.saveNow('exercises');
+    } else if (S.settings.builtinVersion !== App.seed.VERSION) {
+      // Built-in exercise data changed (new fields, images, fixes) since this
+      // device last seeded — refresh built-ins in place, leave customs alone.
+      const fresh = App.seed.exercises();
+      const freshById = {};
+      fresh.forEach(function (e) { freshById[e.id] = e; });
+      DB.state.exercises.forEach(function (e) {
+        if (e.isCustom) return;
+        const f = freshById[e.id];
+        if (!f) return;
+        e.name = f.name; e.primary = f.primary; e.equipment = f.equipment;
+        e.tracking = f.tracking; e.image = f.image;
+        delete freshById[e.id];
+      });
+      const existingIds = {};
+      DB.state.exercises.forEach(function (e) { existingIds[e.id] = true; });
+      Object.keys(freshById).forEach(function (id) {
+        if (!existingIds[id]) DB.state.exercises.push(freshById[id]);
+      });
+      DB.setSettings({ firstRunDone: true, builtinVersion: App.seed.VERSION });
       DB.saveNow('exercises');
     }
 
