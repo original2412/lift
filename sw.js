@@ -1,5 +1,5 @@
 /* Lift service worker — offline-first app shell */
-const CACHE = 'lift-v2';
+const CACHE = 'lift-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -45,15 +45,25 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Navigation: network first, fall back to cached shell.
-  if (req.mode === 'navigate') {
+  // App shell (HTML/JS/CSS/manifest): network-first, so a deploy reaches
+  // users on their very next load instead of waiting on a cache-version
+  // bump. Falls back to the last cached copy when offline.
+  const isShellFile = req.mode === 'navigate' || /\.(js|css|webmanifest)$/.test(url.pathname);
+  if (isShellFile) {
     e.respondWith(
-      fetch(req).catch(() => caches.match('./index.html'))
+      fetch(req).then((res) => {
+        if (res && res.status === 200) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
+        return res;
+      }).catch(() => caches.match(req).then((hit) => hit || (req.mode === 'navigate' ? caches.match('./index.html') : undefined)))
     );
     return;
   }
 
-  // Static assets: cache first, then network (and cache the result).
+  // Everything else (exercise photos, icons): cache-first — these don't
+  // change once shipped, so prefer speed and offline reliability.
   e.respondWith(
     caches.match(req).then((hit) => {
       if (hit) return hit;
