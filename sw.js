@@ -11,6 +11,7 @@ const ASSETS = [
   './js/store.js',
   './js/ui.js',
   './js/charts.js',
+  './js/push.js',
   './js/views/home.js',
   './js/views/routine-edit.js',
   './js/views/workout.js',
@@ -72,12 +73,31 @@ self.addEventListener('message', (e) => {
   }));
 });
 
+// Push from push-server/ at rest end. The payload is Declarative Web Push
+// JSON: Safari 18.4+ can display it on its own; everywhere else (and Safari
+// when it wakes us) we show it here.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) {}
+  const n = d.notification || {};
+  e.waitUntil(self.registration.showNotification(n.title || 'Rest over — next set', {
+    body: n.body || '',
+    tag: 'rest',
+    renotify: true,
+    silent: false,
+    vibrate: [300, 120, 300, 120, 300],
+    icon: 'icons/icon-192.png',
+    data: { url: n.navigate || './#/workout' }
+  }));
+});
+
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || './#/workout';
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const c of list) if ('focus' in c) return c.focus();
-      return self.clients.openWindow('./#/workout');
+      return self.clients.openWindow(url);
     })
   );
 });

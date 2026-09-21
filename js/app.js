@@ -46,6 +46,7 @@
     // isn't mounted to chime, and the worker stays quiet because we're visible.
     const a = DB.state.active;
     const onWorkout = (location.hash || '').indexOf('/workout') === 1;
+    if (a && a.rest && !onWorkout) App.quietIfWatching(a, (a.rest.endsAt - Date.now()) / 1000);
     if (a && a.rest && !onWorkout && !document.hidden && Date.now() >= a.rest.endsAt) {
       if (Date.now() - a.rest.endsAt < 3000) { UI.chime(); UI.buzz([200, 100, 200]); }
       a.rest = null;
@@ -91,6 +92,7 @@
     }
 
     App.applyTheme();
+    App.push.refresh();
 
     // define default routes' 404 -> home
     App.router.add('/:anything', function (ctx) {

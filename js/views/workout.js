@@ -202,11 +202,11 @@
     function startRest(sec) {
       if (!sec) return;
       UI.unlockAudio();
-      askNotificationPermission(); // called from the set-complete tap, so the prompt is allowed
       restDone = false;
       a.rest = { endsAt: Date.now() + sec * 1000, duration: sec };
       persist();
       scheduleRestAlert(a);
+      ensureAlertsEnabled(a);
       renderRestBar();
     }
     function stopRest() { a.rest = null; persist(); scheduleRestAlert(a); renderRestBar(); }
@@ -253,6 +253,7 @@
       if (!a.rest) return;
       a.rest.endsAt = Math.max(Date.now(), a.rest.endsAt + delta * 1000);
       a.rest.duration = Math.max(a.rest.duration, (a.rest.endsAt - Date.now()) / 1000);
+      a.rest.quiet = false;
       persist();
       scheduleRestAlert(a);
       updateClocks();
@@ -283,6 +284,7 @@
       if (remain > 0) {
         dockTime.textContent = U.fmtClock(Math.ceil(remain));
         dockProg.style.width = Math.min(100, remain / a.rest.duration * 100) + '%';
+        quietIfWatching(a, remain);
         return;
       }
       if (restDone) return;
@@ -601,9 +603,43 @@
       .catch(function () {});
   }
 
+  // Server push when available (the only thing that works on iPhone), else the
+  // service-worker timer (Android, rests ≤ 5 min). Never both — that would
+  // double-notify.
   function scheduleRestAlert(a) {
-    if (!a || !a.rest || a.rest.endsAt <= Date.now()) { postToWorker({ type: 'rest-cancel' }); return; }
+    const active = !!(a && a.rest && a.rest.endsAt > Date.now() && !a.rest.quiet);
+    if (App.push.ready()) {
+      postToWorker({ type: 'rest-cancel' });
+      if (active) App.push.schedule(a.rest.endsAt, nextSetText(a));
+      else App.push.cancel();
+      return;
+    }
+    if (!active) { postToWorker({ type: 'rest-cancel' }); return; }
     postToWorker({ type: 'rest-schedule', endsAt: a.rest.endsAt, body: nextSetText(a) });
+  }
+  App.scheduleRestAlert = scheduleRestAlert;
+
+  // If you're looking at the app as rest ends, the page chimes itself — pull
+  // the server push ~2s early so you don't also get a banner.
+  function quietIfWatching(a, remainSec) {
+    if (!a || !a.rest || a.rest.quiet || document.hidden || remainSec > 2) return;
+    a.rest.quiet = true;
+    DB.saveNow('active');
+    if (App.push.ready()) App.push.cancel();
+    else postToWorker({ type: 'rest-cancel' });
+  }
+  App.quietIfWatching = quietIfWatching;
+
+  // Called from the set-complete tap on each rest start: turns alerts on the
+  // first time (permission prompt must come from a tap).
+  function ensureAlertsEnabled(a) {
+    if (App.push.status() === 'off') {
+      App.push.enable().then(function (ok) { if (ok) scheduleRestAlert(a); });
+    } else if (!App.push.supported()) {
+      try {
+        if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+      } catch (e) {}
+    }
   }
 
   // "Bench Press · set 3: 62.5 kg × 8" for the notification body
@@ -621,13 +657,7 @@
   }
 
   function endActive() {
-    postToWorker({ type: 'rest-cancel' });
+    scheduleRestAlert(null);
     DB.setActive(null);
-  }
-
-  function askNotificationPermission() {
-    try {
-      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-    } catch (e) {}
   }
 })();

@@ -87,15 +87,7 @@
         DB.setSettings({ wakeLock: on });
       }));
 
-      card.appendChild(rowToggle('Rest alert in background', 'Sound + vibration when rest ends while the app is in the background (up to 5 min rest)', canNotify(), function (on) {
-        if (on && 'Notification' in window) {
-          Notification.requestPermission().then(function (p) {
-            if (p !== 'granted') UI.toast('Allow notifications for Lift in your phone settings');
-          });
-        } else if (!on) {
-          UI.toast('To turn off, block notifications for Lift in phone settings');
-        }
-      }));
+      card.appendChild(restAlertRow());
       v.appendChild(card);
 
       // --- Data ---
@@ -210,8 +202,39 @@
     });
   }
 
-  function canNotify() {
-    return 'Notification' in window && Notification.permission === 'granted';
+  // Background rest alert: server push where possible, else the local
+  // service-worker timer (Android, ≤ 5 min).
+  function restAlertRow() {
+    const P = App.push;
+    const st = P.status();
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    let meta, action = null;
+    if (st === 'on') {
+      meta = 'On — notification with sound + vibration when rest ends, even if the app is closed';
+      action = el('button.pill', { text: 'Test', onclick: function () {
+        P.schedule(Date.now() + 5000, 'This is a test — lock your phone now').then(function (ok) {
+          UI.toast(ok ? 'Test alert in 5 seconds — lock the phone' : 'Could not reach the alert server');
+        });
+      } });
+    } else if (st === 'off') {
+      meta = 'Off — alert when rest ends while the app is in the background';
+      action = el('button.pill', { text: 'Turn on', onclick: function () {
+        P.enable().then(function (ok) {
+          UI.toast(ok ? 'Rest alerts on' : 'Allow notifications for Lift to turn this on');
+          App.store.emit();
+        });
+      } });
+    } else if (st === 'blocked') {
+      meta = 'Notifications are blocked — allow them for Lift in your phone’s Settings → Notifications';
+    } else if (!standalone && /iPhone|iPad/.test(navigator.userAgent)) {
+      meta = 'On iPhone this needs the app opened from the Home Screen (Share → Add to Home Screen)';
+    } else {
+      meta = 'Not available here' + ('Notification' in window ? ' — falls back to an alert for rests up to 5 min' : '');
+    }
+    return el('div.list-item', null, [
+      el('div.grow', null, [el('div.name', { text: 'Rest alert in background' }), el('div.meta', { text: meta })]),
+      action
+    ]);
   }
   function storageKB() {
     let total = 0;
