@@ -68,6 +68,7 @@
     copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
     play: '<path d="m6 4 14 8-14 8Z"/>',
     timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/>',
+    target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
     dumbbell: '<path d="m6.5 6.5 11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M7 17 3 21M17 7l4-4"/>',
     trophy: '<path d="M6 9a6 6 0 0 0 12 0V4H6ZM6 5H3v2a3 3 0 0 0 3 3M18 5h3v2a3 3 0 0 1-3 3M9 20h6M12 15v5"/>',
     swap: '<path d="M7 10 3 6l4-4M3 6h13M17 14l4 4-4 4M21 18H8"/>',
@@ -179,6 +180,49 @@
     items[idx].classList.add('on');
     // wait for the sheet to lay out before positioning the wheel
     requestAnimationFrame(function () { wheel.scrollTop = idx * ITEM; });
+  };
+
+  // ---- rep range picker ----
+  UI.repRangePicker = function (opts) {
+    const PRESETS = [[4, 6], [6, 8], [6, 10], [8, 12], [10, 15], [12, 20], [15, 25]];
+    const minIn = UI.el('input.input', { type: 'text', inputmode: 'numeric', value: String(opts.min) });
+    const maxIn = UI.el('input.input', { type: 'text', inputmode: 'numeric', value: String(opts.max) });
+    const chips = UI.el('div.chips', { style: { flexWrap: 'wrap' } });
+    function paint() {
+      Array.prototype.forEach.call(chips.children, function (c) {
+        c.classList.toggle('on', c.dataset.min === minIn.value && c.dataset.max === maxIn.value);
+      });
+    }
+    PRESETS.forEach(function (p) {
+      chips.appendChild(UI.el('button.chip', {
+        text: p[0] + '–' + p[1], dataset: { min: String(p[0]), max: String(p[1]) },
+        onclick: function () { minIn.value = p[0]; maxIn.value = p[1]; paint(); }
+      }));
+    });
+    minIn.addEventListener('input', paint);
+    maxIn.addEventListener('input', paint);
+    paint();
+
+    const ref = UI.sheet({
+      title: opts.title || 'Rep range',
+      body: UI.el('div', null, [
+        UI.el('p.muted.tiny', { text: 'When you hit the top of the range on every set, the app suggests adding weight.', style: { margin: '0 2px 12px' } }),
+        chips,
+        UI.el('div.btn-row', { style: { marginTop: '8px' } }, [
+          UI.el('label.field', { style: { flex: '1' } }, [UI.el('span.label', { text: 'Min reps' }), minIn]),
+          UI.el('label.field', { style: { flex: '1' } }, [UI.el('span.label', { text: 'Max reps' }), maxIn])
+        ])
+      ]),
+      footer: UI.el('button.btn.primary', {
+        text: 'Save',
+        onclick: function () {
+          const lo = parseInt(minIn.value, 10), hi = parseInt(maxIn.value, 10);
+          if (!(lo >= 1) || !(hi >= lo) || hi > 100) { UI.toast('Min must be ≥ 1 and max ≥ min'); return; }
+          ref.close();
+          opts.onDone(lo, hi);
+        }
+      })
+    });
   };
 
   // ---- haptics ----

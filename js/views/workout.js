@@ -39,15 +39,40 @@
     return [{ type: 'normal', weight: '', reps: '', done: false }];
   }
 
+  function repRangeFor(exId, src) {
+    if (src && src.repMin) return { min: src.repMin, max: src.repMax };
+    return S.lastRepRange(exId) || App.DEFAULT_REP_RANGE;
+  }
+
+  // Pre-fill not-yet-done working sets with the progression target.
+  function applyTarget(item, exceptWorkoutId) {
+    const p = S.progression(item.exerciseId, item.repMin, item.repMax, exceptWorkoutId);
+    if (!p) return;
+    item.sets.forEach(function (s) {
+      if (s.done || s.type === 'warmup' || s.type === 'drop') return;
+      s.weight = p.weight;
+      s.reps = p.reps;
+    });
+  }
+
+  function newItem(exId, fields) {
+    const rr = repRangeFor(exId, fields);
+    const item = Object.assign({ exerciseId: exId, notes: '', restSec: S.settings.defaultRestSec }, fields, {
+      repMin: rr.min, repMax: rr.max
+    });
+    applyTarget(item, null);
+    return item;
+  }
+
   function itemFromRoutine(rit) {
-    return {
-      exerciseId: rit.exerciseId,
+    return newItem(rit.exerciseId, {
       notes: rit.notes || '',
       restSec: rit.restSec != null ? rit.restSec : S.settings.defaultRestSec,
+      repMin: rit.repMin, repMax: rit.repMax,
       sets: (rit.sets && rit.sets.length ? rit.sets : [{ type: 'normal', weight: '', reps: '' }]).map(function (s) {
         return { type: s.type || 'normal', weight: s.weight === '' ? '' : s.weight, reps: s.reps === '' ? '' : s.reps, done: false };
       })
-    };
+    });
   }
 
   const Workout = {
@@ -151,7 +176,7 @@
             excludeIds: [],
             onDone: function (ids) {
               ids.forEach(function (exId) {
-                a.items.push({ exerciseId: exId, notes: '', restSec: S.settings.defaultRestSec, sets: setsFromLast(exId) });
+                a.items.push(newItem(exId, { sets: setsFromLast(exId) }));
               });
               persist();
               render();
@@ -181,6 +206,38 @@
       renderRestBar();
     }
     function stopRest() { a.rest = null; persist(); renderRestBar(); }
+    function targetRow(item) {
+      const p = S.progression(item.exerciseId, item.repMin, item.repMax, a.id);
+      const u = App.unit();
+      const w = function (kg) { return U.fmtNum(App.fmtW(kg)); };
+      let main, why;
+      if (!p) {
+        main = 'First time — find your weight';
+        why = 'Pick a weight you can do for ' + item.repMin + '–' + item.repMax + ' reps close to failure';
+      } else if (p.kind === 'weight') {
+        main = 'Target ' + w(p.weight) + ' ' + u + ' × ' + p.reps;
+        why = 'Hit ' + p.lastReps + ' reps on every set last time → +' + w(p.incKg) + ' ' + u;
+      } else {
+        main = 'Target ' + w(p.weight) + ' ' + u + ' × ' + p.reps;
+        why = 'Last time ' + w(p.lastWeight) + '×' + p.lastReps + ' → beat it by one rep';
+      }
+      return el('button.target-row', { onclick: function () { editRange(item); }, 'aria-label': 'Change rep range' }, [
+        el('span.target-ic', { html: svg(ICON.target) }),
+        el('div.grow', null, [el('div.t', { text: main }), el('div.w', { text: why })]),
+        el('span.target-range', { text: item.repMin + '–' + item.repMax })
+      ]);
+    }
+    function editRange(item) {
+      UI.repRangePicker({
+        title: 'Rep range · ' + S.exerciseName(item.exerciseId),
+        min: item.repMin, max: item.repMax,
+        onDone: function (lo, hi) {
+          item.repMin = lo; item.repMax = hi;
+          applyTarget(item, a.id);
+          persist(); render();
+        }
+      });
+    }
     function pickRest(item) {
       UI.durationPicker({
         title: 'Rest · ' + S.exerciseName(item.exerciseId),
@@ -259,6 +316,15 @@
           value: it.notes || '', placeholder: 'Note…',
           oninput: function (e) { it.notes = e.target.value; persist(); }
         }));
+      }
+
+      if (!(ex && ex.tracking === 'cardio')) {
+        if (!it.repMin) {
+          // workouts started before rep ranges existed
+          const rr = repRangeFor(it.exerciseId);
+          it.repMin = rr.min; it.repMax = rr.max;
+        }
+        card.appendChild(targetRow(it));
       }
 
       const table = el('table.set-grid');
@@ -412,6 +478,7 @@
               exerciseId: it.exerciseId,
               notes: it.notes || '',
               restSec: it.restSec || 0,
+              repMin: it.repMin, repMax: it.repMax,
               sets: it.sets
                 .filter(function (s) { return s.done; })
                 .map(function (s) { return { type: s.type, weight: Number(s.weight) || 0, reps: Number(s.reps) || 0, done: true }; })

@@ -17,6 +17,8 @@
     ctx.bind(function () {
       const v = UI.clear(ctx.el);
       v.appendChild(el('div.page-head', null, [el('h1', { text: 'Stats' })]));
+      v.appendChild(weeklyVolume());
+      v.appendChild(el('div.section-label', { text: 'Overview' }));
 
       const workouts = S.workouts();
       const now = Date.now();
@@ -44,30 +46,6 @@
           return { label: U.fmtDate(p.t, { month: 'short', day: 'numeric' }), value: Math.round(App.fmtW(p.volume)) };
         })) })
       ]));
-
-      // sets per muscle (last 30d)
-      const muscleVol = {};
-      last30.forEach(function (w) {
-        (w.items || []).forEach(function (it) {
-          const ex = S.exercise(it.exerciseId);
-          const m = ex ? ex.primary : 'Other';
-          it.sets.forEach(function (s) { if (s.done && s.type !== 'warmup') muscleVol[m] = (muscleVol[m] || 0) + 1; });
-        });
-      });
-      const muscleRows = Object.keys(muscleVol).sort(function (a, b) { return muscleVol[b] - muscleVol[a]; });
-      if (muscleRows.length) {
-        const maxM = muscleVol[muscleRows[0]];
-        v.appendChild(el('div.section-label', { text: 'Working sets by muscle · 30 days' }));
-        const card = el('div.card');
-        muscleRows.forEach(function (m) {
-          card.appendChild(el('div', { style: { margin: '7px 0' } }, [
-            el('div.rowsplit.tiny', null, [el('span', { text: m }), el('span.muted', { text: String(muscleVol[m]) })]),
-            el('div', { style: { height: '6px', borderRadius: '3px', background: 'var(--bg-elev-2)', marginTop: '3px', overflow: 'hidden' } },
-              el('div', { style: { height: '100%', width: (muscleVol[m] / maxM * 100) + '%', background: 'var(--accent)' } }))
-          ]));
-        });
-        v.appendChild(card);
-      }
 
       // measurements
       v.appendChild(el('div.rowsplit', { style: { margin: '18px 2px 8px' } }, [
@@ -99,6 +77,44 @@
       }
     });
   }, { tab: 'stats' });
+
+  function volStatus(n) {
+    const T = App.VOLUME_TARGET;
+    return n < T.min ? 'low' : n > T.max ? 'high' : 'ok';
+  }
+  App.volStatus = volStatus;
+
+  function weeklyVolume() {
+    const T = App.VOLUME_TARGET;
+    const thisWk = U.weekStart(Date.now());
+    const cur = S.weeklyMuscleSets(thisWk);
+    const prev = S.weeklyMuscleSets(thisWk - 7 * 86400000);
+    const muscles = App.GROWTH_MUSCLES.slice();
+    Object.keys(cur).forEach(function (m) {
+      if (muscles.indexOf(m) < 0 && ['Cardio', 'Other', 'Full Body'].indexOf(m) < 0) muscles.push(m);
+    });
+    const scale = Math.max.apply(null, [T.max + 5].concat(muscles.map(function (m) { return cur[m] || 0; })));
+    const inRange = muscles.filter(function (m) { return volStatus(cur[m] || 0) === 'ok'; }).length;
+
+    const card = el('div.card');
+    card.appendChild(el('div.muted.tiny', {
+      text: 'Aim for ' + T.min + '–' + T.max + ' hard sets per muscle each week. ' + inRange + ' of ' + muscles.length + ' in range.'
+    }));
+    muscles.forEach(function (m) {
+      const n = cur[m] || 0, st = volStatus(n);
+      card.appendChild(el('div.vol-row', null, [
+        el('div.rowsplit.tiny', null, [
+          el('span', null, [el('span.vol-dot.' + st), m]),
+          el('span', null, [el('strong', { text: String(n) }), el('span.faint', { text: '  · last wk ' + (prev[m] || 0) })])
+        ]),
+        el('div.vol-track', null, [
+          el('div.vol-zone', { style: { left: (T.min / scale * 100) + '%', width: ((T.max - T.min) / scale * 100) + '%' } }),
+          el('div.vol-fill.' + st, { style: { width: Math.min(100, n / scale * 100) + '%' } })
+        ])
+      ]));
+    });
+    return el('div', null, [el('div.section-label', { text: 'Sets per muscle · this week' }), card]);
+  }
 
   function logMeasurement() {
     const typeSel = el('select.input', null, MEASURE_TYPES.map(function (mt) {

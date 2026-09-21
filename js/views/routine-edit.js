@@ -37,7 +37,11 @@
         App.exercisePicker({
           onDone: function (ids) {
             ids.forEach(function (exId) {
-              routine.items.push({ exerciseId: exId, restSec: routine.items.length ? routine.items[0].restSec : S.settings.defaultRestSec, notes: '', sets: [blankSet()] });
+              const rr = S.lastRepRange(exId) || App.DEFAULT_REP_RANGE;
+              routine.items.push({
+                exerciseId: exId, restSec: routine.items.length ? routine.items[0].restSec : S.settings.defaultRestSec,
+                repMin: rr.min, repMax: rr.max, notes: '', sets: [blankSet()]
+              });
             });
             renderItems();
           }
@@ -81,6 +85,28 @@
         value: it.notes || '', placeholder: 'Add note…',
         oninput: function (e) { it.notes = e.target.value; }
       }));
+
+      if (!it.repMin) {
+        const rr = S.lastRepRange(it.exerciseId) || App.DEFAULT_REP_RANGE;
+        it.repMin = rr.min; it.repMax = rr.max;
+      }
+      card.appendChild(el('div.rowsplit', { style: { margin: '2px 0 4px' } }, [
+        el('span.faint.tiny', { html: svg(ICON.target, ' style="width:13px;height:13px;vertical-align:-2px"') + ' Rep range' }),
+        el('button.pill', {
+          text: it.repMin + '–' + it.repMax,
+          onclick: function (e) {
+            const btn = e.currentTarget;
+            UI.repRangePicker({
+              title: 'Rep range · ' + S.exerciseName(it.exerciseId),
+              min: it.repMin, max: it.repMax,
+              onDone: function (lo, hi) {
+                it.repMin = lo; it.repMax = hi; dirty = true;
+                btn.textContent = lo + '–' + hi;
+              }
+            });
+          }
+        })
+      ]));
 
       // rest timer row
       card.appendChild(el('div.rowsplit', { style: { margin: '2px 0 8px' } }, [
@@ -217,6 +243,13 @@
     let dirty = false;
     ['input', 'change'].forEach(function (ev) {
       v.addEventListener(ev, function () { dirty = true; });
+    });
+    // fill rep ranges for routines saved before they existed, before taking the
+    // baseline, so opening an old routine doesn't count as an unsaved edit
+    routine.items.forEach(function (it) {
+      if (it.repMin) return;
+      const rr = S.lastRepRange(it.exerciseId) || App.DEFAULT_REP_RANGE;
+      it.repMin = rr.min; it.repMax = rr.max;
     });
     const baseline = JSON.stringify(routine);
 

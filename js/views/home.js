@@ -38,6 +38,28 @@
     ]);
   }
 
+  function weekCard() {
+    const T = App.VOLUME_TARGET;
+    const cur = S.weeklyMuscleSets(U.weekStart(Date.now()));
+    const low = App.GROWTH_MUSCLES
+      .map(function (m) { return [m, cur[m] || 0]; })
+      .filter(function (p) { return p[1] < T.min; })
+      .sort(function (a, b) { return a[1] - b[1]; });
+    const onTarget = App.GROWTH_MUSCLES.length - low.length;
+    return el('a.card.tight', { href: '#/stats', style: { display: 'block' } }, [
+      el('div.rowsplit', null, [
+        el('strong', { text: 'This week', style: { fontSize: '14px' } }),
+        el('span.faint.tiny', { text: onTarget + '/' + App.GROWTH_MUSCLES.length + ' muscles at ' + T.min + '+ sets' })
+      ]),
+      low.length
+        ? el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '8px' } },
+            [el('span.tiny.muted', { text: 'Behind:', style: { marginRight: '2px' } })].concat(low.map(function (p) {
+              return el('span.pill', { text: p[0] + ' ' + p[1] });
+            })))
+        : el('div.tiny', { text: 'Every muscle is in the growth range.', style: { marginTop: '6px', color: 'var(--good)' } })
+    ]);
+  }
+
   function routineMenu(r) {
     UI.menu(r.name, [
       { label: 'Edit routine', icon: ICON.edit, onClick: function () { R.go('/routine/' + r.id + '/edit'); } },
@@ -77,6 +99,8 @@
           onclick: function () { App.workout.startEmpty(); }
         }));
       }
+
+      if (S.workouts().length) v.appendChild(weekCard());
 
       v.appendChild(el('div.rowsplit', { style: { margin: '6px 2px 10px' } }, [
         el('div.section-label', { text: 'Routines', style: { margin: 0 } }),

@@ -274,6 +274,66 @@
       return streak;
     },
 
+    // ---- hypertrophy coaching ----
+
+    // Double progression: work inside a rep range at one weight; once every
+    // top set reaches the top of the range, add weight and drop to the bottom.
+    // Returns null when there's nothing to base a suggestion on.
+    progression: function (exId, repMin, repMax, exceptWorkoutId) {
+      const ex = S.exercise(exId);
+      if (ex && ex.tracking === 'cardio') return null;
+      const last = S.lastPerformance(exId, exceptWorkoutId);
+      if (!last) return null;
+      const work = last.sets.filter(function (s) {
+        return s.type !== 'warmup' && s.type !== 'drop' && Number(s.weight) > 0 && Number(s.reps) > 0;
+      });
+      if (!work.length) return null;
+      const topW = Math.max.apply(null, work.map(function (s) { return Number(s.weight); }));
+      const topReps = work
+        .filter(function (s) { return Math.abs(Number(s.weight) - topW) < 0.01; })
+        .map(function (s) { return Number(s.reps); });
+      const minReps = Math.min.apply(null, topReps);
+      const incKg = S.settings.units === 'lb'
+        ? (S.settings.incLb || 5) * U.KG_PER_LB
+        : (S.settings.incKg || 2.5);
+      if (minReps >= repMax) {
+        return { kind: 'weight', weight: topW + incKg, reps: repMin, lastWeight: topW, lastReps: minReps, incKg: incKg };
+      }
+      return { kind: 'reps', weight: topW, reps: Math.min(repMax, minReps + 1), lastWeight: topW, lastReps: minReps };
+    },
+
+    // Rep range used the last time this exercise was logged, if any.
+    lastRepRange: function (exId) {
+      const hist = S.workouts();
+      for (let i = 0; i < hist.length; i++) {
+        const it = (hist[i].items || []).find(function (x) { return x.exerciseId === exId && x.repMin; });
+        if (it) return { min: it.repMin, max: it.repMax };
+      }
+      return null;
+    },
+
+    // Completed working sets per primary muscle for the Monday-week starting
+    // at weekStart, including the in-progress workout.
+    weeklyMuscleSets: function (weekStart) {
+      const end = weekStart + 7 * 86400000;
+      const counts = {};
+      function add(items) {
+        (items || []).forEach(function (it) {
+          const ex = S.exercise(it.exerciseId);
+          const m = ex ? ex.primary : 'Other';
+          (it.sets || []).forEach(function (s) {
+            if (s.done && s.type !== 'warmup') counts[m] = (counts[m] || 0) + 1;
+          });
+        });
+      }
+      DB.state.workouts.forEach(function (w) {
+        if (w.startedAt >= weekStart && w.startedAt < end) add(w.items);
+      });
+      const a = DB.state.active;
+      if (a && a.startedAt >= weekStart && a.startedAt < end) add(a.items);
+      return counts;
+    },
+
     // ---- measurements ----
     measurements: function (type) {
       return DB.state.measurements

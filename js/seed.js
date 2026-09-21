@@ -9,6 +9,12 @@
     'Full Body', 'Cardio', 'Other'
   ];
 
+  // Weekly hard-set target per muscle for hypertrophy (common evidence-based
+  // range). Muscles below are always shown so neglected ones stand out.
+  App.VOLUME_TARGET = { min: 10, max: 20 };
+  App.GROWTH_MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quadriceps', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
+  App.DEFAULT_REP_RANGE = { min: 8, max: 12 };
+
   App.EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Kettlebell', 'Band', 'Other'];
 
   // Base library. Ids are stable slugs so history survives re-seeding.
