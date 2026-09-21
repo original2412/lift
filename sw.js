@@ -35,8 +35,51 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// ---- rest-over alert while the app is in the background ----
+// The page's own timers stop when it's backgrounded, so the page hands the
+// end time to the worker. A pending waitUntil() keeps the worker alive until
+// then — Chrome caps that at ~5 minutes per event. Each new schedule/cancel
+// bumps restGen so a superseded timer does nothing.
+let restGen = 0;
+
 self.addEventListener('message', (e) => {
-  if (e.data === 'skipWaiting') self.skipWaiting();
+  const d = e.data;
+  if (d === 'skipWaiting') { self.skipWaiting(); return; }
+  if (!d || typeof d !== 'object') return;
+  if (d.type === 'rest-cancel') { restGen++; return; }
+  if (d.type !== 'rest-schedule') return;
+
+  const gen = ++restGen;
+  const wait = Math.max(0, d.endsAt - Date.now());
+  e.waitUntil(new Promise((resolve) => {
+    setTimeout(() => {
+      if (gen !== restGen) { resolve(); return; }
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+        .then((list) => {
+          // an open, visible app plays its own chime
+          if (list.some((c) => c.visibilityState === 'visible')) return;
+          return self.registration.showNotification('Rest over — next set', {
+            body: d.body || '',
+            tag: 'rest',
+            renotify: true,
+            silent: false,
+            vibrate: [300, 120, 300, 120, 300],
+            icon: 'icons/icon-192.png'
+          });
+        })
+        .then(resolve, resolve);
+    }, wait);
+  }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) if ('focus' in c) return c.focus();
+      return self.clients.openWindow('./#/workout');
+    })
+  );
 });
 
 self.addEventListener('fetch', (e) => {

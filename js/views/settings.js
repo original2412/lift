@@ -87,8 +87,14 @@
         DB.setSettings({ wakeLock: on });
       }));
 
-      card.appendChild(rowToggle('Rest-timer notifications', 'Alert when rest is over', canNotify(), function (on) {
-        if (on && 'Notification' in window) Notification.requestPermission();
+      card.appendChild(rowToggle('Rest alert in background', 'Sound + vibration when rest ends while the app is in the background (up to 5 min rest)', canNotify(), function (on) {
+        if (on && 'Notification' in window) {
+          Notification.requestPermission().then(function (p) {
+            if (p !== 'granted') UI.toast('Allow notifications for Lift in your phone settings');
+          });
+        } else if (!on) {
+          UI.toast('To turn off, block notifications for Lift in phone settings');
+        }
       }));
       v.appendChild(card);
 

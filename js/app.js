@@ -42,6 +42,15 @@
 
   // keep resume-bar elapsed text alive
   setInterval(function () {
+    // Rest ending while you're on another screen of the app: the workout view
+    // isn't mounted to chime, and the worker stays quiet because we're visible.
+    const a = DB.state.active;
+    const onWorkout = (location.hash || '').indexOf('/workout') === 1;
+    if (a && a.rest && !onWorkout && !document.hidden && Date.now() >= a.rest.endsAt) {
+      if (Date.now() - a.rest.endsAt < 3000) { UI.chime(); UI.buzz([200, 100, 200]); }
+      a.rest = null;
+      DB.saveNow('active');
+    }
     if (resumeBar && DB.state.active) {
       const s = resumeBar.querySelector('.s');
       if (s) s.textContent = U.pluralize(DB.state.active.items.length, 'exercise') + ' · ' +

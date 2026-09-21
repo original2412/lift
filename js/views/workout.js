@@ -101,7 +101,7 @@
       message: 'You already have a workout in progress. Starting a new one will discard it.',
       confirmText: 'Discard & start', danger: true, cancelText: 'Keep current'
     }).then(function (ok) {
-      if (ok) { DB.setActive(null); proceed(); }
+      if (ok) { endActive(); proceed(); }
     });
   }
 
@@ -144,6 +144,8 @@
 
     render();
     renderRestBar();
+    // the worker may have been restarted since the rest began
+    scheduleRestAlert(a);
 
     function render() {
       const v = UI.clear(ctx.el);
@@ -189,7 +191,7 @@
         text: 'Cancel workout', style: { marginTop: '16px' },
         onclick: function () {
           UI.confirm({ title: 'Cancel this workout?', message: 'Nothing will be saved to your history.', confirmText: 'Cancel workout', danger: true, cancelText: 'Keep going' })
-            .then(function (ok) { if (ok) { DB.setActive(null); R.go('/', true); } });
+            .then(function (ok) { if (ok) { endActive(); R.go('/', true); } });
         }
       }));
 
@@ -200,12 +202,14 @@
     function startRest(sec) {
       if (!sec) return;
       UI.unlockAudio();
+      askNotificationPermission(); // called from the set-complete tap, so the prompt is allowed
       restDone = false;
       a.rest = { endsAt: Date.now() + sec * 1000, duration: sec };
       persist();
+      scheduleRestAlert(a);
       renderRestBar();
     }
-    function stopRest() { a.rest = null; persist(); renderRestBar(); }
+    function stopRest() { a.rest = null; persist(); scheduleRestAlert(a); renderRestBar(); }
     function targetRow(item) {
       const p = S.progression(item.exerciseId, item.repMin, item.repMax, a.id);
       const u = App.unit();
@@ -250,6 +254,7 @@
       a.rest.endsAt = Math.max(Date.now(), a.rest.endsAt + delta * 1000);
       a.rest.duration = Math.max(a.rest.duration, (a.rest.endsAt - Date.now()) / 1000);
       persist();
+      scheduleRestAlert(a);
       updateClocks();
     }
     function renderRestBar() {
@@ -288,7 +293,6 @@
         UI.chime();
         UI.buzz([200, 100, 200]);
       }
-      notify('Rest complete', a.name);
       a.rest = null;
       persist();
       renderRestBar();
@@ -460,7 +464,7 @@
       const doneSets = a.items.reduce(function (n, it) { return n + it.sets.filter(function (s) { return s.done; }).length; }, 0);
       if (doneSets === 0) {
         UI.confirm({ title: 'Finish with no sets?', message: 'No sets are marked complete, so nothing meaningful will be saved.', confirmText: 'Discard workout', danger: true, cancelText: 'Keep going' })
-          .then(function (ok) { if (ok) { DB.setActive(null); R.go('/', true); } });
+          .then(function (ok) { if (ok) { endActive(); R.go('/', true); } });
         return;
       }
       const endedAt = Date.now();
@@ -507,7 +511,7 @@
       record.prs = prs;
 
       S.commitWorkout(record);
-      DB.setActive(null);
+      endActive();
       R.go('/summary/' + record.id, true);
     }
   }, { tab: 'home', fullscreen: true });
@@ -589,11 +593,41 @@
     return null;
   }
 
-  function notify(title, body) {
+  // ---- background rest alert (handled by the service worker, see sw.js) ----
+  function postToWorker(msg) {
+    if (!('serviceWorker' in navigator) || location.protocol.indexOf('http') !== 0) return;
+    navigator.serviceWorker.ready
+      .then(function (reg) { if (reg.active) reg.active.postMessage(msg); })
+      .catch(function () {});
+  }
+
+  function scheduleRestAlert(a) {
+    if (!a || !a.rest || a.rest.endsAt <= Date.now()) { postToWorker({ type: 'rest-cancel' }); return; }
+    postToWorker({ type: 'rest-schedule', endsAt: a.rest.endsAt, body: nextSetText(a) });
+  }
+
+  // "Bench Press · set 3: 62.5 kg × 8" for the notification body
+  function nextSetText(a) {
+    for (let i = 0; i < a.items.length; i++) {
+      const it = a.items[i];
+      const si = it.sets.findIndex(function (s) { return !s.done; });
+      if (si < 0) continue;
+      const s = it.sets[si];
+      const load = s.weight !== '' && s.reps !== '' && s.weight != null
+        ? ': ' + U.fmtNum(App.fmtW(s.weight)) + ' ' + App.unit() + ' × ' + s.reps : '';
+      return S.exerciseName(it.exerciseId) + ' · set ' + (si + 1) + load;
+    }
+    return 'All sets done — tap Finish when ready';
+  }
+
+  function endActive() {
+    postToWorker({ type: 'rest-cancel' });
+    DB.setActive(null);
+  }
+
+  function askNotificationPermission() {
     try {
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(title, { body: body, silent: false });
-      }
+      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     } catch (e) {}
   }
 })();
