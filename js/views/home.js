@@ -39,22 +39,22 @@
   }
 
   function weekCard() {
-    const T = App.VOLUME_TARGET;
     const cur = S.weeklyMuscleSets(U.weekStart(Date.now()));
+    // how far below its own minimum each muscle is, most-behind first
     const low = App.GROWTH_MUSCLES
-      .map(function (m) { return [m, cur[m] || 0]; })
-      .filter(function (p) { return p[1] < T.min; })
-      .sort(function (a, b) { return a[1] - b[1]; });
+      .map(function (m) { return [m, cur[m] || 0, App.muscleTarget(m).min]; })
+      .filter(function (p) { return p[1] < p[2]; })
+      .sort(function (a, b) { return (a[1] / a[2]) - (b[1] / b[2]); });
     const onTarget = App.GROWTH_MUSCLES.length - low.length;
     return el('a.card.tight', { href: '#/stats', style: { display: 'block' } }, [
       el('div.rowsplit', null, [
         el('strong', { text: 'This week', style: { fontSize: '14px' } }),
-        el('span.faint.tiny', { text: onTarget + '/' + App.GROWTH_MUSCLES.length + ' muscles at ' + T.min + '+ sets' })
+        el('span.faint.tiny', { text: onTarget + '/' + App.GROWTH_MUSCLES.length + ' muscles in growth zone' })
       ]),
       low.length
         ? el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '8px' } },
             [el('span.tiny.muted', { text: 'Behind:', style: { marginRight: '2px' } })].concat(low.map(function (p) {
-              return el('span.pill', { text: p[0] + ' ' + p[1] });
+              return el('span.pill', { text: p[0] + ' ' + U.fmtNum(p[1]) + '/' + p[2] });
             })))
         : el('div.tiny', { text: 'Every muscle is in the growth range.', style: { marginTop: '6px', color: 'var(--good)' } })
     ]);

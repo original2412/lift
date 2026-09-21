@@ -6,6 +6,8 @@
   const el = UI.el, svg = UI.svg, ICON = UI.ICON;
 
   App.router.add('/history', function (ctx) {
+    let calMonth = null; // first-of-month timestamp shown in the calendar
+
     ctx.bind(function () {
       const v = UI.clear(ctx.el);
       v.appendChild(el('div.page-head', null, [el('h1', { text: 'History' })]));
@@ -18,38 +20,118 @@
         return;
       }
 
-      // summary strip
-      const totalVol = list.reduce(function (n, w) { return n + S.workoutVolume(w); }, 0);
-      v.appendChild(el('div.stat-grid', { style: { marginBottom: '8px' } }, [
-        box(String(list.length), 'Workouts'),
-        box(compact(App.fmtW(totalVol)) + ' ' + App.unit(), 'Total volume'),
-        box(String(S.workoutStreakDays()) + 'd', 'Streak')
-      ]));
+      if (calMonth == null) {
+        const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0);
+        calMonth = d.getTime();
+      }
+      const calHost = el('div');
+      v.appendChild(calHost);
+      renderCalendar(calHost, list);
 
       let lastMonth = null;
       list.forEach(function (w) {
         const mk = U.monthKey(w.startedAt);
         if (mk !== lastMonth) {
           lastMonth = mk;
-          v.appendChild(el('div.section-label', { text: U.monthLabel(mk) }));
+          const n = list.filter(function (x) { return U.monthKey(x.startedAt) === mk; }).length;
+          v.appendChild(el('div.section-label.rowsplit', null, [
+            el('span', { text: U.monthLabel(mk) }),
+            el('span', { text: U.pluralize(n, 'workout') })
+          ]));
         }
-        v.appendChild(el('a.card.tight', { href: '#/history/' + w.id, style: { display: 'block' } }, [
-          el('div.rowsplit', null, [
-            el('strong', { text: w.name, style: { fontSize: '15px' } }),
-            el('span.faint.tiny', { text: U.relDay(w.startedAt) })
-          ]),
-          el('div.muted.tiny', { style: { marginTop: '5px' }, text:
-            U.fmtDuration(w.durationSec) + '  ·  ' +
-            U.pluralize(w.items.length, 'exercise') + '  ·  ' +
-            U.fmtNum(App.fmtW(S.workoutVolume(w))) + ' ' + App.unit() + ' volume' +
-            (w.prs && w.prs.length ? '  ·  ' + w.prs.length + ' PR' : '')
-          }),
-          el('div.tiny.faint', { style: { marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-            text: w.items.map(function (it) { return S.exerciseName(it.exerciseId); }).join(', ') })
-        ]));
+        v.appendChild(workoutCard(w));
       });
     });
+
+    function renderCalendar(host, list) {
+      UI.clear(host);
+      const first = new Date(calMonth);
+      const year = first.getFullYear(), month = first.getMonth();
+      const daysIn = new Date(year, month + 1, 0).getDate();
+      const lead = (first.getDay() + 6) % 7; // Monday-first
+      const byDay = {};
+      list.forEach(function (w) {
+        const d = new Date(w.startedAt);
+        if (d.getFullYear() === year && d.getMonth() === month) {
+          (byDay[d.getDate()] = byDay[d.getDate()] || []).push(w);
+        }
+      });
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const count = Object.keys(byDay).reduce(function (n, k) { return n + byDay[k].length; }, 0);
+
+      const grid = el('div.cal-grid');
+      ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach(function (d) { grid.appendChild(el('div.cal-dow', { text: d })); });
+      for (let i = 0; i < lead; i++) grid.appendChild(el('div.cal-day.out'));
+      for (let day = 1; day <= daysIn; day++) {
+        const t = new Date(year, month, day).getTime();
+        const ws = byDay[day];
+        const cls = 'div.cal-day' + (ws ? '.on' : '') + (t === today.getTime() ? '.today' : '') + (t > today.getTime() ? '.future' : '');
+        grid.appendChild(el(cls, {
+          text: String(day),
+          onclick: ws ? function () { R.go('/history/' + ws[0].id); } : null
+        }));
+      }
+
+      const isCurrent = (function () { const n = new Date(); return n.getFullYear() === year && n.getMonth() === month; })();
+      host.appendChild(el('div.card', null, [
+        el('div.cal-head', null, [
+          el('button.icon-btn', { html: svg(ICON.chevronL), 'aria-label': 'Previous month', onclick: function () {
+            calMonth = new Date(year, month - 1, 1).getTime(); renderCalendar(host, list);
+          } }),
+          el('div.center', null, [
+            el('div', { text: U.monthLabel(U.monthKey(calMonth)), style: { fontWeight: '700' } }),
+            el('div.faint.tiny', { text: U.pluralize(count, 'workout') })
+          ]),
+          el('button.icon-btn', { html: svg(ICON.chevronR), 'aria-label': 'Next month', disabled: isCurrent, onclick: function () {
+            calMonth = new Date(year, month + 1, 1).getTime(); renderCalendar(host, list);
+          } })
+        ]),
+        grid
+      ]));
+    }
   }, { tab: 'history' });
+
+  function workoutCard(w) {
+    const lines = el('div.wk-lines');
+    const shown = w.items.slice(0, 4);
+    shown.forEach(function (it) {
+      const best = S.bestSet(it);
+      const n = (it.sets || []).filter(function (s) { return s.type !== 'warmup'; }).length;
+      lines.appendChild(el('div.wk-line', null, [
+        UI.exerciseThumb(S.exercise(it.exerciseId), 28),
+        el('span.n', { text: n + ' × ' + S.exerciseName(it.exerciseId) }),
+        best ? el('span.b', { text: U.fmtNum(App.fmtW(best.weight)) + ' ' + App.unit() + ' × ' + best.reps }) : null
+      ]));
+    });
+    if (w.items.length > shown.length) {
+      lines.appendChild(el('div.faint.tiny', { text: '+' + U.pluralize(w.items.length - shown.length, 'more exercise'), style: { paddingTop: '4px' } }));
+    }
+    const prs = (w.prs || []).length;
+    return el('a.wk-card', { href: '#/history/' + w.id }, [
+      el('div.rowsplit', null, [
+        el('div', { style: { minWidth: 0 } }, [
+          el('div.title', { text: w.name }),
+          el('div.when', { text: U.relDay(w.startedAt) + ' · ' + U.fmtTime(w.startedAt) })
+        ]),
+        el('span.chev', { html: svg(ICON.chevronR, ' style="width:18px;height:18px;color:var(--text-faint)"') })
+      ]),
+      miniStats([
+        ['Time', U.fmtDuration(w.durationSec)],
+        ['Volume', U.fmtCompact(App.fmtW(S.workoutVolume(w))) + ' ' + App.unit()],
+        ['Sets', String(S.workoutSetCount(w))],
+        prs ? ['Records', null, el('span', { html: svg(ICON.trophy, ' style="width:14px;height:14px;vertical-align:-2px;color:var(--pr)"') + ' ' + prs })] : null
+      ]),
+      lines
+    ]);
+  }
+
+  // [[label, text, optionalNode], ...] -> compact labeled stats row
+  function miniStats(rows) {
+    return el('div.mini-stats', null, rows.filter(Boolean).map(function (r) {
+      return el('div', null, [el('div.k', { text: r[0] }), el('div.v', { text: r[2] ? null : r[1] }, r[2] || null)]);
+    }));
+  }
+  App.miniStats = miniStats;
 
   App.router.add('/history/:id', function (ctx) {
     ctx.bind(function () {
@@ -65,11 +147,13 @@
       v.appendChild(el('div.muted.tiny', { style: { margin: '0 2px 12px' },
         text: U.fmtDate(w.startedAt, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) + ' · ' + U.fmtTime(w.startedAt) }));
 
-      v.appendChild(el('div.stat-grid', { style: { marginBottom: '12px' } }, [
-        box(U.fmtDuration(w.durationSec), 'Duration'),
-        box(U.fmtNum(App.fmtW(S.workoutVolume(w))) + ' ' + App.unit(), 'Volume'),
-        box(String(S.workoutSetCount(w)), 'Sets')
-      ]));
+      const prs = (w.prs || []).length;
+      v.appendChild(el('div.card', { style: { paddingTop: '4px' } }, miniStats([
+        ['Time', U.fmtDuration(w.durationSec)],
+        ['Volume', U.fmtCompact(App.fmtW(S.workoutVolume(w))) + ' ' + App.unit()],
+        ['Sets', String(S.workoutSetCount(w))],
+        prs ? ['Records', String(prs)] : null
+      ])));
 
       if (w.notes) v.appendChild(el('div.card.tight.muted.tiny', { text: w.notes }));
 
@@ -122,7 +206,4 @@
       } }
     ]);
   }
-
-  function box(v, k) { return el('div.stat-box', null, [el('div.v', { text: v }), el('div.k', { text: k })]); }
-  function compact(n) { n = Math.round(n); return n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
 })();

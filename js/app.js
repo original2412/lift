@@ -69,6 +69,7 @@
         if (!f) return;
         e.name = f.name; e.primary = f.primary; e.equipment = f.equipment;
         e.tracking = f.tracking; e.image = f.image;
+        e.secondary = f.secondary; e.repMin = f.repMin; e.repMax = f.repMax;
         delete freshById[e.id];
       });
       const existingIds = {};

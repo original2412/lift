@@ -239,21 +239,46 @@
       return points;
     },
 
-    // Weekly totals for the last `weeks` Monday-weeks.
+    // Weekly totals (volume, sets, workouts, seconds) for the last `weeks`
+    // Monday-weeks, oldest first.
     weeklyVolume: function (weeks) {
       weeks = weeks || 12;
       const map = {};
       DB.state.workouts.forEach(function (w) {
         const k = U.weekStart(w.startedAt);
-        map[k] = (map[k] || 0) + S.workoutVolume(w);
+        const m = map[k] || (map[k] = { volume: 0, sets: 0, workouts: 0, seconds: 0 });
+        m.volume += S.workoutVolume(w);
+        m.sets += S.workoutSetCount(w);
+        m.workouts += 1;
+        m.seconds += w.durationSec || 0;
       });
       const out = [];
       const thisWeek = U.weekStart(Date.now());
       for (let i = weeks - 1; i >= 0; i--) {
         const k = thisWeek - i * 7 * 86400000;
-        out.push({ t: k, volume: map[k] || 0 });
+        out.push(Object.assign({ t: k, volume: 0, sets: 0, workouts: 0, seconds: 0 }, map[k]));
       }
       return out;
+    },
+
+    // Heaviest working set of a logged item (ties broken by reps).
+    bestSet: function (item) {
+      let best = null;
+      (item.sets || []).forEach(function (s) {
+        if (!s.done || s.type === 'warmup') return;
+        const w = Number(s.weight) || 0, r = Number(s.reps) || 0;
+        if (!best || w > best.weight || (w === best.weight && r > best.reps)) best = { weight: w, reps: r };
+      });
+      return best;
+    },
+
+    // Most recent PRs across history: [{ exerciseId, hits, t, workoutId }].
+    recentPRs: function (limit) {
+      const out = [];
+      S.workouts().forEach(function (w) {
+        (w.prs || []).forEach(function (p) { out.push({ exerciseId: p.exerciseId, hits: p.hits, t: w.startedAt, workoutId: w.id }); });
+      });
+      return out.slice(0, limit || 5);
     },
 
     workoutStreakDays: function () {
@@ -312,18 +337,28 @@
       return null;
     },
 
-    // Completed working sets per primary muscle for the Monday-week starting
-    // at weekStart, including the in-progress workout.
+    // Rep range to use when none is set: what you used last time, else the
+    // exercise's default, else 8–12.
+    defaultRepRange: function (exId) {
+      const ex = S.exercise(exId);
+      return S.lastRepRange(exId)
+        || (ex && ex.repMin ? { min: ex.repMin, max: ex.repMax } : App.DEFAULT_REP_RANGE);
+    },
+
+    // Completed working sets per muscle for the Monday-week starting at
+    // weekStart (in-progress workout included). Fractional counting: 1 for the
+    // primary muscle, 0.5 for each secondary.
     weeklyMuscleSets: function (weekStart) {
       const end = weekStart + 7 * 86400000;
       const counts = {};
       function add(items) {
         (items || []).forEach(function (it) {
           const ex = S.exercise(it.exerciseId);
+          const n = (it.sets || []).filter(function (s) { return s.done && s.type !== 'warmup'; }).length;
+          if (!n) return;
           const m = ex ? ex.primary : 'Other';
-          (it.sets || []).forEach(function (s) {
-            if (s.done && s.type !== 'warmup') counts[m] = (counts[m] || 0) + 1;
-          });
+          counts[m] = (counts[m] || 0) + n;
+          ((ex && ex.secondary) || []).forEach(function (sm) { counts[sm] = (counts[sm] || 0) + n * 0.5; });
         });
       }
       DB.state.workouts.forEach(function (w) {

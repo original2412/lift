@@ -5,6 +5,17 @@
 
   const U = {};
 
+  // UI is English; don't let a Hebrew device locale mix Hebrew dates into it.
+  U.LOCALE = 'en-GB';
+
+  U.fmtCompact = function (n) {
+    n = Math.round(Number(n) || 0);
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1e4) return Math.round(n / 1e3) + 'k';
+    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k';
+    return String(n);
+  };
+
   // ---- ids / misc ----
   U.uid = function () {
     return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -77,11 +88,11 @@
 
   U.fmtDate = function (ts, opts) {
     const d = new Date(ts);
-    return d.toLocaleDateString(undefined, opts || { weekday: 'short', month: 'short', day: 'numeric' });
+    return d.toLocaleDateString(U.LOCALE, opts || { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
   U.fmtTime = function (ts) {
-    return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return new Date(ts).toLocaleTimeString(U.LOCALE, { hour: 'numeric', minute: '2-digit' });
   };
 
   U.relDay = function (ts) {
@@ -100,7 +111,7 @@
   };
   U.monthLabel = function (key) {
     const [y, m] = key.split('-').map(Number);
-    return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    return new Date(y, m - 1, 1).toLocaleDateString(U.LOCALE, { month: 'long', year: 'numeric' });
   };
 
   // Monday-based week key

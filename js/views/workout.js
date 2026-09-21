@@ -41,7 +41,7 @@
 
   function repRangeFor(exId, src) {
     if (src && src.repMin) return { min: src.repMin, max: src.repMax };
-    return S.lastRepRange(exId) || App.DEFAULT_REP_RANGE;
+    return S.defaultRepRange(exId);
   }
 
   // Pre-fill not-yet-done working sets with the progression target.

@@ -37,7 +37,7 @@
         App.exercisePicker({
           onDone: function (ids) {
             ids.forEach(function (exId) {
-              const rr = S.lastRepRange(exId) || App.DEFAULT_REP_RANGE;
+              const rr = S.defaultRepRange(exId);
               routine.items.push({
                 exerciseId: exId, restSec: routine.items.length ? routine.items[0].restSec : S.settings.defaultRestSec,
                 repMin: rr.min, repMax: rr.max, notes: '', sets: [blankSet()]
@@ -87,7 +87,7 @@
       }));
 
       if (!it.repMin) {
-        const rr = S.lastRepRange(it.exerciseId) || App.DEFAULT_REP_RANGE;
+        const rr = S.defaultRepRange(it.exerciseId);
         it.repMin = rr.min; it.repMax = rr.max;
       }
       card.appendChild(el('div.rowsplit', { style: { margin: '2px 0 4px' } }, [
@@ -248,7 +248,7 @@
     // baseline, so opening an old routine doesn't count as an unsaved edit
     routine.items.forEach(function (it) {
       if (it.repMin) return;
-      const rr = S.lastRepRange(it.exerciseId) || App.DEFAULT_REP_RANGE;
+      const rr = S.defaultRepRange(it.exerciseId);
       it.repMin = rr.min; it.repMax = rr.max;
     });
     const baseline = JSON.stringify(routine);
