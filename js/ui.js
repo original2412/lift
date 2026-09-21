@@ -107,6 +107,80 @@
     });
   };
 
+  // ---- sound ----
+  // Browsers only allow audio after a user gesture, so unlockAudio() is called
+  // from tap handlers (e.g. completing a set) before chime() is ever needed.
+  let actx = null;
+  UI.unlockAudio = function () {
+    try {
+      if (!actx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        actx = new AC();
+      }
+      if (actx.state === 'suspended') actx.resume();
+    } catch (e) {}
+  };
+  UI.chime = function () {
+    UI.unlockAudio();
+    if (!actx) return;
+    const t0 = actx.currentTime + 0.02;
+    [[0, 880], [0.18, 880], [0.36, 1320]].forEach(function (n) {
+      const o = actx.createOscillator();
+      const g = actx.createGain();
+      o.type = 'sine';
+      o.frequency.value = n[1];
+      g.gain.setValueAtTime(0.0001, t0 + n[0]);
+      g.gain.exponentialRampToValueAtTime(0.4, t0 + n[0] + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + n[0] + 0.16);
+      o.connect(g);
+      g.connect(actx.destination);
+      o.start(t0 + n[0]);
+      o.stop(t0 + n[0] + 0.18);
+    });
+  };
+
+  // ---- duration wheel picker (0 = off, 5s steps up to 10 min) ----
+  UI.durationPicker = function (opts) {
+    const STEP = 5, MAX = 600, ITEM = 44;
+    const values = [];
+    for (let s = 0; s <= MAX; s += STEP) values.push(s);
+    let idx = Math.round((opts.value || 0) / STEP);
+    idx = Math.max(0, Math.min(values.length - 1, idx));
+
+    const wheel = UI.el('div.wheel');
+    const items = values.map(function (v, i) {
+      return UI.el('div.wheel-item', {
+        text: v ? U.fmtClock(v) : 'Off',
+        onclick: function () { wheel.scrollTo({ top: i * ITEM, behavior: 'smooth' }); }
+      });
+    });
+    UI.append(wheel, items);
+
+    let raf = 0;
+    function mark() {
+      raf = 0;
+      const i = Math.max(0, Math.min(values.length - 1, Math.round(wheel.scrollTop / ITEM)));
+      if (i === idx && items[i].classList.contains('on')) return;
+      if (items[idx]) items[idx].classList.remove('on');
+      idx = i;
+      items[idx].classList.add('on');
+    }
+    wheel.addEventListener('scroll', function () { if (!raf) raf = requestAnimationFrame(mark); });
+
+    const ref = UI.sheet({
+      title: opts.title || 'Rest timer',
+      body: UI.el('div.wheel-wrap', null, [UI.el('div.wheel-band'), wheel]),
+      footer: UI.el('button.btn.primary', {
+        text: 'Save',
+        onclick: function () { mark(); ref.close(); opts.onDone(values[idx]); }
+      })
+    });
+    items[idx].classList.add('on');
+    // wait for the sheet to lay out before positioning the wheel
+    requestAnimationFrame(function () { wheel.scrollTop = idx * ITEM; });
+  };
+
   // ---- haptics ----
   UI.buzz = function (pattern) {
     try { if (navigator.vibrate) navigator.vibrate(pattern || 15); } catch (e) {}

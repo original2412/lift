@@ -22,7 +22,9 @@
     ['Dumbbell Fly', 'Chest', 'Dumbbell'],
     ['Cable Fly', 'Chest', 'Cable'],
     ['Chest Press Machine', 'Chest', 'Machine'],
-    ['Pec Deck', 'Chest', 'Machine'],
+    // 4th element pins the id — renamed from "Pec Deck", keep history attached.
+    ['Butterfly (Pec Deck)', 'Chest', 'Machine', 'ex_pec_deck'],
+    ['Cable Fly Crossover', 'Chest', 'Cable'],
     ['Push-Up', 'Chest', 'Bodyweight'],
     ['Dip', 'Chest', 'Bodyweight'],
 
@@ -67,6 +69,7 @@
     ['Preacher Curl', 'Biceps', 'Machine'],
     ['Cable Curl', 'Biceps', 'Cable'],
     ['Concentration Curl', 'Biceps', 'Dumbbell'],
+    ['Behind-the-Back Cable Curl', 'Biceps', 'Cable'],
 
     // Triceps
     ['Close-Grip Bench Press', 'Triceps', 'Barbell'],
@@ -117,6 +120,7 @@
     ['Hanging Leg Raise', 'Abs', 'Bodyweight'],
     ['Cable Crunch', 'Abs', 'Cable'],
     ['Crunch', 'Abs', 'Bodyweight'],
+    ['Machine Crunch', 'Abs', 'Machine'],
     ['Plank', 'Abs', 'Bodyweight'],
     ['Ab Wheel Rollout', 'Abs', 'Other'],
     ['Russian Twist', 'Abs', 'Bodyweight'],
@@ -145,15 +149,15 @@
 
   // A handful of built-ins have no good public-domain demo photo (checked
   // against the free-exercise-db dataset) — they fall back to an initials avatar.
-  var NO_IMAGE = { ex_pec_deck: 1, ex_pendlay_row: 1, ex_machine_row: 1, ex_nordic_curl: 1, ex_burpee: 1 };
+  var NO_IMAGE = { ex_pendlay_row: 1, ex_machine_row: 1, ex_nordic_curl: 1, ex_burpee: 1, ex_behind_the_back_cable_curl: 1 };
 
   App.seed = {
     // Bump whenever RAW/NO_IMAGE data changes, so existing devices pick up
     // the update (see app.js boot — built-ins get merged, customs untouched).
-    VERSION: 2,
+    VERSION: 3,
     exercises: function () {
       return RAW.map(function (r) {
-        var id = slug(r[0]);
+        var id = r[3] || slug(r[0]);
         return {
           id: id,
           name: r[0],

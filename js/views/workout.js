@@ -100,17 +100,25 @@
     document.addEventListener('visibilitychange', onVis);
     function onVis() { if (!document.hidden) { updateClocks(); requestWake(); } }
 
+    // The rest dock lives outside #view so render() doesn't wipe it.
+    const dock = el('div.rest-dock', { hidden: true });
+    document.getElementById('app').appendChild(dock);
+    let dockTime = null, dockProg = null;
+
     ctx.onLeave(function () {
       clearInterval(tick);
       document.removeEventListener('visibilitychange', onVis);
       try { if (wake) wake.release(); } catch (e) {}
+      dock.remove();
+      ctx.el.classList.remove('has-dock');
       DB.saveNow('active');
     });
 
-    let restBarEl, clockEl;
+    let clockEl;
     let restDone = false;
 
     render();
+    renderRestBar();
 
     function render() {
       const v = UI.clear(ctx.el);
@@ -129,11 +137,6 @@
         el('button.btn.sm.good', { text: 'Finish', onclick: finish })
       ]));
       v.appendChild(header);
-
-      // rest bar placeholder
-      restBarEl = el('div');
-      v.appendChild(restBarEl);
-      renderRestBar();
 
       // exercises
       if (!a.items.length) {
@@ -171,64 +174,83 @@
     // ---- rest timer ----
     function startRest(sec) {
       if (!sec) return;
+      UI.unlockAudio();
+      restDone = false;
       a.rest = { endsAt: Date.now() + sec * 1000, duration: sec };
       persist();
       renderRestBar();
     }
     function stopRest() { a.rest = null; persist(); renderRestBar(); }
+    function pickRest(item) {
+      UI.durationPicker({
+        title: 'Rest · ' + S.exerciseName(item.exerciseId),
+        value: item.restSec || 0,
+        onDone: function (sec) { item.restSec = sec; persist(); render(); }
+      });
+    }
     function bumpRest(delta) {
       if (!a.rest) return;
       a.rest.endsAt = Math.max(Date.now(), a.rest.endsAt + delta * 1000);
+      a.rest.duration = Math.max(a.rest.duration, (a.rest.endsAt - Date.now()) / 1000);
       persist();
       updateClocks();
     }
     function renderRestBar() {
-      UI.clear(restBarEl);
-      if (!a.rest) return;
-      const time = el('span.time', { text: '0:00' });
-      restBarEl.appendChild(el('div.rest-bar', null, [
-        el('span', { html: svg(ICON.timer, ' style="width:18px;height:18px"') }),
-        time,
-        el('span.grow'),
-        el('button', { text: '-15', onclick: function () { bumpRest(-15); } }),
-        el('button', { text: '+15', onclick: function () { bumpRest(15); } }),
-        el('button', { text: 'Skip', onclick: stopRest })
-      ]));
-      restBarEl._time = time;
+      const on = !!a.rest;
+      dock.hidden = !on;
+      ctx.el.classList.toggle('has-dock', on);
+      if (!on) return;
+      if (!dockTime) {
+        dockProg = el('div.prog');
+        dockTime = el('div.time', { text: '0:00' });
+        dock.appendChild(dockProg);
+        dock.appendChild(el('div.row', null, [
+          el('div', { style: { flex: '1' } }, [el('div.lbl', { text: 'Rest' }), dockTime]),
+          el('button', { text: '−15', 'aria-label': 'Subtract 15 seconds', onclick: function () { bumpRest(-15); } }),
+          el('button', { text: '+15', 'aria-label': 'Add 15 seconds', onclick: function () { bumpRest(15); } }),
+          el('button.skip', { text: 'Skip', onclick: stopRest })
+        ]));
+      }
       updateClocks();
     }
 
     function updateClocks() {
       if (clockEl) clockEl.textContent = U.fmtClock((Date.now() - a.startedAt) / 1000);
-      if (a.rest && restBarEl._time) {
-        const remain = (a.rest.endsAt - Date.now()) / 1000;
-        if (remain <= 0) {
-          restBarEl._time.textContent = '0:00';
-          if (!restDone) {
-            restDone = true;
-            UI.buzz([120, 60, 120]);
-            notify('Rest complete', a.name);
-            a.rest = null; persist();
-            setTimeout(renderRestBar, 400);
-          }
-        } else {
-          restDone = false;
-          restBarEl._time.textContent = U.fmtClock(remain);
-        }
+      if (!a.rest || !dockTime) return;
+      const remain = (a.rest.endsAt - Date.now()) / 1000;
+      if (remain > 0) {
+        dockTime.textContent = U.fmtClock(Math.ceil(remain));
+        dockProg.style.width = Math.min(100, remain / a.rest.duration * 100) + '%';
+        return;
       }
+      if (restDone) return;
+      restDone = true;
+      // Only alert if we're on time — returning to the app long after the
+      // rest ended shouldn't suddenly beep.
+      if (remain > -3) {
+        UI.chime();
+        UI.buzz([200, 100, 200]);
+      }
+      notify('Rest complete', a.name);
+      a.rest = null;
+      persist();
+      renderRestBar();
     }
 
     // ---- exercise card ----
     function exerciseCard(it, idx) {
       const ex = S.exercise(it.exerciseId);
       const card = el('div.ex-card');
-      const bests = liveBests(it.exerciseId);
       const last = S.lastPerformance(it.exerciseId, a.id);
 
       card.appendChild(el('div.ex-head', null, [
         el('a', { href: ex ? '#/exercise/' + ex.id : '#/workout' }, UI.exerciseThumb(ex, 34)),
         el('a.ex-name', { text: ex ? ex.name : 'Removed exercise', href: ex ? '#/exercise/' + ex.id : '#/workout' }),
-        el('span.faint.tiny', { text: it.restSec ? U.fmtClock(it.restSec) + ' rest' : 'no rest' }),
+        el('button.rest-link', {
+          html: svg(ICON.timer, ' style="width:13px;height:13px;vertical-align:-2px"') + ' ' + (it.restSec ? U.fmtClock(it.restSec) : 'Off'),
+          'aria-label': 'Change rest timer',
+          onclick: function () { pickRest(it); }
+        }),
         el('button.icon-btn', { html: svg(ICON.dots), 'aria-label': 'Options', onclick: function () { itemMenu(it, idx); } })
       ]));
 
@@ -339,7 +361,7 @@
           if ((st.weight === '' || st.weight == null) && last && last.sets[si]) st.weight = last.sets[si].weight;
           if ((st.reps === '' || st.reps == null) && last && last.sets[si]) st.reps = last.sets[si].reps;
           if (st.type !== 'warmup') {
-            const pr = checkPR(it.exerciseId, st, bests);
+            const pr = checkPR(it.exerciseId, st);
             if (pr) { st._pr = pr; UI.buzz([40, 40, 90]); }
           }
           if (it.restSec) startRest(it.restSec);
@@ -353,11 +375,7 @@
           { label: item.notes || item._showNote ? 'Hide note' : 'Add note', icon: ICON.note, onClick: function () {
             item._showNote = !(item.notes || item._showNote); if (!item._showNote) {} render();
           } },
-          { label: 'Rest timer: ' + (item.restSec ? U.fmtClock(item.restSec) : 'off'), icon: ICON.timer, onClick: function () {
-            const opts = [0, 30, 45, 60, 90, 120, 150, 180, 240, 300];
-            item.restSec = opts[(opts.indexOf(item.restSec || 0) + 1) % opts.length];
-            persist(); render();
-          } },
+          { label: 'Rest timer: ' + (item.restSec ? U.fmtClock(item.restSec) : 'off'), icon: ICON.timer, onClick: function () { pickRest(item); } },
           i > 0 ? { label: 'Move up', icon: ICON.chevronL, onClick: function () { move(i, i - 1); } } : null,
           i < a.items.length - 1 ? { label: 'Move down', icon: ICON.chevronR, onClick: function () { move(i, i + 1); } } : null,
           { label: 'Replace exercise', icon: ICON.swap, onClick: function () {
@@ -481,24 +499,26 @@
   function box(v, k) { return el('div.stat-box', null, [el('div.v', { text: v }), el('div.k', { text: k })]); }
   function compact(n) { n = Math.round(n); return n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
 
-  // best numbers combining committed history + current live session progress
-  function liveBests(exId) {
-    const b = S.exerciseBests(exId, DB.state.active ? DB.state.active.id : null);
-    return b;
-  }
-  function checkPR(exId, st, bests) {
+  // Compare against committed history plus every other completed set of this
+  // exercise in the live workout. Computed fresh each time so re-renders can't
+  // reset it.
+  function checkPR(exId, st) {
     const w = Number(st.weight) || 0, r = Number(st.reps) || 0;
     if (!w || !r) return null;
-    const e1 = U.epley1RM(w, r);
-    if (e1 > (bests._e1rm || bests.e1rm) + 0.01) {
-      bests._e1rm = e1;
-      if (w > (bests._weight || bests.weight) + 0.01) bests._weight = w;
-      return 'Est. 1RM PR';
-    }
-    if (w > (bests._weight || bests.weight) + 0.01) {
-      bests._weight = w;
-      return 'Weight PR';
-    }
+    const a = DB.state.active;
+    const b = S.exerciseBests(exId, a.id);
+    let e1Best = b.e1rm, wBest = b.weight;
+    a.items.forEach(function (it) {
+      if (it.exerciseId !== exId) return;
+      it.sets.forEach(function (s) {
+        if (s === st || !s.done || s.type === 'warmup') return;
+        const sw = Number(s.weight) || 0;
+        e1Best = Math.max(e1Best, U.epley1RM(sw, Number(s.reps) || 0));
+        wBest = Math.max(wBest, sw);
+      });
+    });
+    if (U.epley1RM(w, r) > e1Best + 0.01) return 'Est. 1RM PR';
+    if (w > wBest + 0.01) return 'Weight PR';
     return null;
   }
 

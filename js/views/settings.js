@@ -64,10 +64,15 @@
       card.appendChild(el('div.list-item', null, [
         el('div.grow', null, [el('div.name', { text: 'Default rest timer' }), el('div.meta', { text: 'Used for new exercises' })]),
         el('button.pill', { text: st.defaultRestSec ? U.fmtClock(st.defaultRestSec) : 'Off', onclick: function (e) {
-          const opts = [0, 45, 60, 90, 120, 150, 180, 240];
-          const next = opts[(opts.indexOf(st.defaultRestSec) + 1) % opts.length];
-          DB.setSettings({ defaultRestSec: next });
-          e.target.textContent = next ? U.fmtClock(next) : 'Off';
+          const btn = e.currentTarget;
+          UI.durationPicker({
+            title: 'Default rest timer',
+            value: st.defaultRestSec || 0,
+            onDone: function (sec) {
+              DB.setSettings({ defaultRestSec: sec });
+              btn.textContent = sec ? U.fmtClock(sec) : 'Off';
+            }
+          });
         } })
       ]));
 

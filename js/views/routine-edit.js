@@ -88,11 +88,16 @@
         el('button.pill', {
           text: it.restSec ? U.fmtClock(it.restSec) : 'Off',
           onclick: function (e) {
-            const cur = it.restSec || 0;
-            const opts = [0, 30, 45, 60, 90, 120, 150, 180, 240, 300];
-            const next = opts[(opts.indexOf(cur) + 1) % opts.length];
-            it.restSec = next;
-            e.target.textContent = next ? U.fmtClock(next) : 'Off';
+            const btn = e.currentTarget;
+            UI.durationPicker({
+              title: 'Rest · ' + S.exerciseName(it.exerciseId),
+              value: it.restSec || 0,
+              onDone: function (sec) {
+                it.restSec = sec;
+                dirty = true;
+                btn.textContent = sec ? U.fmtClock(sec) : 'Off';
+              }
+            });
           }
         })
       ]));
