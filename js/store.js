@@ -301,30 +301,49 @@
 
     // ---- hypertrophy coaching ----
 
-    // Double progression: work inside a rep range at one weight; once every
-    // top set reaches the top of the range, add weight and drop to the bottom.
-    // Returns null when there's nothing to base a suggestion on.
-    progression: function (exId, repMin, repMax, exceptWorkoutId) {
+    // Per-set double progression from last session. Each set is matched to
+    // the same set last time (by position within its type), so ramped or
+    // pyramid sets keep their shape: a working set that reached the top of
+    // the rep range goes up one increment and drops to the bottom of the
+    // range; otherwise same weight, one more rep. Warm-ups and drop sets are
+    // copied as they were. Returns null with no history to go on.
+    //   { byType: { work: [...], warmup: [...], drop: [...] }, up, reps, incKg }
+    //   each entry: { weight, reps, kind: 'weight'|'reps'|'same', prevWeight, prevReps }
+    progressionPlan: function (exId, repMin, repMax, exceptWorkoutId) {
       const ex = S.exercise(exId);
       if (ex && ex.tracking === 'cardio') return null;
       const last = S.lastPerformance(exId, exceptWorkoutId);
-      if (!last) return null;
-      const work = last.sets.filter(function (s) {
-        return s.type !== 'warmup' && s.type !== 'drop' && Number(s.weight) > 0 && Number(s.reps) > 0;
-      });
-      if (!work.length) return null;
-      const topW = Math.max.apply(null, work.map(function (s) { return Number(s.weight); }));
-      const topReps = work
-        .filter(function (s) { return Math.abs(Number(s.weight) - topW) < 0.01; })
-        .map(function (s) { return Number(s.reps); });
-      const minReps = Math.min.apply(null, topReps);
+      if (!last || !last.sets.length) return null;
       const incKg = S.settings.units === 'lb'
         ? (S.settings.incLb || 5) * U.KG_PER_LB
         : (S.settings.incKg || 2.5);
-      if (minReps >= repMax) {
-        return { kind: 'weight', weight: topW + incKg, reps: repMin, lastWeight: topW, lastReps: minReps, incKg: incKg };
-      }
-      return { kind: 'reps', weight: topW, reps: Math.min(repMax, minReps + 1), lastWeight: topW, lastReps: minReps };
+      const byType = {};
+      let up = 0, more = 0;
+      last.sets.forEach(function (s) {
+        const t = S.setGroup(s.type);
+        const w = Number(s.weight) || 0, r = Number(s.reps) || 0;
+        let target;
+        if (t !== 'work' || !r) {
+          target = { weight: s.weight, reps: s.reps, kind: 'same' };
+        } else if (r >= repMax && w > 0) {
+          target = { weight: w + incKg, reps: repMin, kind: 'weight' };
+          up++;
+        } else {
+          // bodyweight sets can't add load, so they keep adding reps past the range
+          target = { weight: s.weight, reps: w > 0 ? Math.min(repMax, r + 1) : r + 1, kind: 'reps' };
+          more++;
+        }
+        target.prevWeight = w;
+        target.prevReps = r;
+        (byType[t] = byType[t] || []).push(target);
+      });
+      if (!byType.work) return null;
+      return { byType: byType, up: up, reps: more, incKg: incKg };
+    },
+
+    // Sets are matched across sessions within these groups.
+    setGroup: function (type) {
+      return type === 'warmup' || type === 'drop' ? type : 'work';
     },
 
     // Rep range used the last time this exercise was logged, if any.

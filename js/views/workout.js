@@ -33,7 +33,7 @@
     const last = S.lastPerformance(exId);
     if (last && last.sets.length) {
       return last.sets.map(function (s) {
-        return { type: s.type === 'warmup' ? 'warmup' : 'normal', weight: s.weight, reps: s.reps, done: false };
+        return { type: s.type || 'normal', weight: s.weight, reps: s.reps, done: false };
       });
     }
     return [{ type: 'normal', weight: '', reps: '', done: false }];
@@ -44,14 +44,23 @@
     return S.defaultRepRange(exId);
   }
 
-  // Pre-fill not-yet-done working sets with the progression target.
+  // Pre-fill not-yet-done sets from last session's matching set (see
+  // S.progressionPlan). Done sets still count toward the position so a
+  // re-apply mid-workout lines up. Extra sets beyond last time's count
+  // repeat the last one.
   function applyTarget(item, exceptWorkoutId) {
-    const p = S.progression(item.exerciseId, item.repMin, item.repMax, exceptWorkoutId);
-    if (!p) return;
+    const plan = S.progressionPlan(item.exerciseId, item.repMin, item.repMax, exceptWorkoutId);
+    if (!plan) return;
+    const pos = {};
     item.sets.forEach(function (s) {
-      if (s.done || s.type === 'warmup' || s.type === 'drop') return;
-      s.weight = p.weight;
-      s.reps = p.reps;
+      const g = S.setGroup(s.type);
+      const i = pos[g] || 0;
+      pos[g] = i + 1;
+      const list = plan.byType[g];
+      if (s.done || !list) return;
+      const t = list[Math.min(i, list.length - 1)];
+      s.weight = t.weight;
+      s.reps = t.reps;
     });
   }
 
@@ -211,19 +220,20 @@
     }
     function stopRest() { a.rest = null; persist(); scheduleRestAlert(a); renderRestBar(); }
     function targetRow(item) {
-      const p = S.progression(item.exerciseId, item.repMin, item.repMax, a.id);
+      const plan = S.progressionPlan(item.exerciseId, item.repMin, item.repMax, a.id);
       const u = App.unit();
       const w = function (kg) { return U.fmtNum(App.fmtW(kg)); };
       let main, why;
-      if (!p) {
+      if (!plan) {
         main = 'First time — find your weight';
         why = 'Pick a weight you can do for ' + item.repMin + '–' + item.repMax + ' reps close to failure';
-      } else if (p.kind === 'weight') {
-        main = 'Target ' + w(p.weight) + ' ' + u + ' × ' + p.reps;
-        why = 'Hit ' + p.lastReps + ' reps on every set last time → +' + w(p.incKg) + ' ' + u;
       } else {
-        main = 'Target ' + w(p.weight) + ' ' + u + ' × ' + p.reps;
-        why = 'Last time ' + w(p.lastWeight) + '×' + p.lastReps + ' → beat it by one rep';
+        const work = plan.byType.work;
+        const shown = work.slice(0, 4).map(function (t) { return w(t.weight) + '×' + t.reps; });
+        main = 'Target ' + u + ': ' + shown.join(' · ') + (work.length > 4 ? ' …' : '');
+        if (plan.up && !plan.reps) why = 'Hit ' + item.repMax + ' reps on every set → +' + w(plan.incKg) + ' ' + u;
+        else if (!plan.up) why = 'One more rep than last time on each set';
+        else why = 'Sets that hit ' + item.repMax + ' go up ' + w(plan.incKg) + ' ' + u + ', the rest +1 rep';
       }
       return el('button.target-row', { onclick: function () { editRange(item); }, 'aria-label': 'Change rep range' }, [
         el('span.target-ic', { html: svg(ICON.target) }),
@@ -363,9 +373,21 @@
         it.sets.forEach(function (st, si) { tb.appendChild(setRow(st, si)); });
       }
 
+      // Last session's set matching set `si`: same type group (working /
+      // warm-up / drop), same position within it — the same matching
+      // applyTarget uses, so PREV lines up even if you add a warm-up.
+      function prevFor(si) {
+        if (!last) return null;
+        const g = S.setGroup(it.sets[si].type);
+        let pos = 0;
+        for (let i = 0; i < si; i++) if (S.setGroup(it.sets[i].type) === g) pos++;
+        const same = last.sets.filter(function (s) { return S.setGroup(s.type) === g; });
+        return same[pos] || null;
+      }
+
       function prevText(si) {
-        if (!last || !last.sets[si]) return '—';
-        const p = last.sets[si];
+        const p = prevFor(si);
+        if (!p) return '—';
         return U.fmtNum(App.fmtW(p.weight)) + '×' + U.fmtNum(p.reps);
       }
 
@@ -381,16 +403,18 @@
         tr.appendChild(el('td.prev-col', null, el('span.prev-cell', {
           text: prevText(si),
           onclick: function () {
-            if (!last || !last.sets[si]) return;
-            const p = last.sets[si];
-            if (st.weight === '' || st.weight == null) st.weight = p.weight;
-            if (st.reps === '' || st.reps == null) st.reps = p.reps;
+            // tap PREV to copy last time's numbers into this set
+            const p = prevFor(si);
+            if (!p || st.done) return;
+            st.weight = p.weight;
+            st.reps = p.reps;
             persist(); renderSetRows();
           }
         })));
 
-        tr.appendChild(el('td', null, numInput(st, 'weight', true)));
-        tr.appendChild(el('td', null, numInput(st, 'reps', false)));
+        const prev = prevFor(si);
+        tr.appendChild(el('td', null, numInput(st, 'weight', true, prev && prev.weight)));
+        tr.appendChild(el('td', null, numInput(st, 'reps', false, prev && prev.reps)));
 
         tr.appendChild(el('td.done-col', null, el('button.check', {
           html: svg(ICON.check), 'aria-label': 'Complete set',
@@ -408,10 +432,13 @@
         return tr;
       }
 
-      function numInput(st, key, isW) {
+      // prevVal: last session's value, shown greyed when the field is empty
+      function numInput(st, key, isW, prevVal) {
         const shown = st[key] === '' || st[key] == null ? '' : (isW ? U.fmtNum(App.fmtW(st[key])) : String(st[key]));
+        const hasPrev = prevVal !== '' && prevVal != null;
+        const ph = hasPrev ? (isW ? U.fmtNum(App.fmtW(prevVal)) : String(prevVal)) : (isW ? App.unit() : '—');
         return el('input.set-input', {
-          type: 'text', inputmode: 'decimal', value: shown, placeholder: isW ? App.unit() : '—',
+          type: 'text', inputmode: 'decimal', value: shown, placeholder: ph,
           onfocus: function (e) { e.target.select(); },
           onblur: function (e) {
             const raw = e.target.value.trim().replace(',', '.');
@@ -430,8 +457,10 @@
         st._pr = null;
         if (st.done) {
           UI.buzz(12);
-          if ((st.weight === '' || st.weight == null) && last && last.sets[si]) st.weight = last.sets[si].weight;
-          if ((st.reps === '' || st.reps == null) && last && last.sets[si]) st.reps = last.sets[si].reps;
+          // ticking an empty set logs last time's numbers (the greyed placeholders)
+          const p = prevFor(si);
+          if ((st.weight === '' || st.weight == null) && p) st.weight = p.weight;
+          if ((st.reps === '' || st.reps == null) && p) st.reps = p.reps;
           if (st.type !== 'warmup') {
             const pr = checkPR(it.exerciseId, st);
             if (pr) { st._pr = pr; UI.buzz([40, 40, 90]); }
