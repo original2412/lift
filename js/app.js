@@ -91,6 +91,27 @@
       DB.saveNow('exercises');
     }
 
+    // One-time: before the finish-time "Update routine?" prompt existed,
+    // routines never learned sets you added during a workout (the editor
+    // starts each exercise at 1 set). Match each routine exercise's sets to
+    // the last time you did that routine.
+    if (!S.settings.routinesSyncedFromHistory) {
+      const hist = S.workouts();
+      let changed = false;
+      DB.state.routines.forEach(function (r) {
+        const last = hist.filter(function (w) { return w.routineId === r.id; })[0];
+        if (!last) return;
+        r.items.forEach(function (ri) {
+          const wi = (last.items || []).filter(function (x) { return x.exerciseId === ri.exerciseId; })[0];
+          if (!wi || !wi.sets.length || wi.sets.length === ri.sets.length) return;
+          ri.sets = wi.sets.map(function (s) { return { type: s.type || 'normal', weight: s.weight, reps: s.reps }; });
+          changed = true;
+        });
+      });
+      if (changed) DB.saveNow('routines');
+      DB.setSettings({ routinesSyncedFromHistory: true });
+    }
+
     App.applyTheme();
     App.push.refresh();
 

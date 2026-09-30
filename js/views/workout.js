@@ -498,6 +498,43 @@
           .then(function (ok) { if (ok) { endActive(); R.go('/', true); } });
         return;
       }
+
+      // Like HEVY: if you changed the structure of a routine's workout, ask
+      // whether the routine should take the changes.
+      const routine = a.routineId ? S.routine(a.routineId) : null;
+      const changes = routine ? routineDiff(routine, a.items) : [];
+      if (!changes.length) { saveWorkout(); return; }
+
+      let chosen = false;
+      const ref = UI.sheet({
+        title: 'Update “' + routine.name + '”?',
+        body: el('div', null, [
+          el('p.muted', { text: 'You changed this workout compared to the routine:', style: { margin: '0 2px 8px' } }),
+          el('ul.change-list', null, changes.slice(0, 12).map(function (c) { return el('li', { text: c }); })),
+          changes.length > 12 ? el('div.faint.tiny', { text: '+' + (changes.length - 12) + ' more' }) : null,
+          el('p.faint.tiny', { text: 'Either way, this workout is saved to your history.', style: { margin: '10px 2px 0' } })
+        ]),
+        footer: el('div', null, [
+          el('button.btn.primary', { text: 'Update routine', onclick: function () {
+            chosen = true;
+            const copy = U.deepClone(routine);
+            copy.items = routineItemsFrom(a.items, routine);
+            S.saveRoutine(copy);
+            ref.close();
+            saveWorkout();
+          } }),
+          el('button.btn.ghost', { text: 'Keep original routine', style: { marginTop: '8px' }, onclick: function () {
+            chosen = true;
+            ref.close();
+            saveWorkout();
+          } })
+        ]),
+        // closing with ✕ / backdrop means "not yet" — stay in the workout
+        onClose: function () { if (!chosen) UI.toast('Still in your workout'); }
+      });
+    }
+
+    function saveWorkout() {
       const endedAt = Date.now();
       const record = {
         id: a.id,
@@ -683,6 +720,60 @@
       return S.exerciseName(it.exerciseId) + ' · set ' + (si + 1) + load;
     }
     return 'All sets done — tap Finish when ready';
+  }
+
+  // ---- routine vs. this workout ----
+  function typeSig(sets) { return sets.map(function (s) { return s.type || 'normal'; }).join(','); }
+  function findItem(items, exId) { return items.filter(function (x) { return x.exerciseId === exId; })[0] || null; }
+
+  // Human-readable list of structural differences (exercises, order, sets,
+  // rest, rep range). Weights/reps aren't structure — they change every time.
+  function routineDiff(r, items) {
+    const out = [];
+    const name = function (id) { return S.exerciseName(id); };
+    const rIds = r.items.map(function (i) { return i.exerciseId; });
+    const wIds = items.map(function (i) { return i.exerciseId; });
+    items.forEach(function (it) { if (rIds.indexOf(it.exerciseId) < 0) out.push('Added ' + name(it.exerciseId) + ' (' + U.pluralize(it.sets.length, 'set') + ')'); });
+    r.items.forEach(function (ri) { if (wIds.indexOf(ri.exerciseId) < 0) out.push('Removed ' + name(ri.exerciseId)); });
+    const keptR = rIds.filter(function (id) { return wIds.indexOf(id) >= 0; });
+    const keptW = wIds.filter(function (id) { return rIds.indexOf(id) >= 0; });
+    if (keptR.join() !== keptW.join()) out.push('Changed exercise order');
+    items.forEach(function (it) {
+      const ri = findItem(r.items, it.exerciseId);
+      if (!ri) return;
+      const n = name(it.exerciseId);
+      if (it.sets.length !== ri.sets.length) out.push(n + ': ' + ri.sets.length + ' → ' + U.pluralize(it.sets.length, 'set'));
+      else if (typeSig(it.sets) !== typeSig(ri.sets)) out.push(n + ': changed set types');
+      if ((it.restSec || 0) !== (ri.restSec || 0)) {
+        out.push(n + ': rest ' + (ri.restSec ? U.fmtClock(ri.restSec) : 'off') + ' → ' + (it.restSec ? U.fmtClock(it.restSec) : 'off'));
+      }
+      if (ri.repMin && (it.repMin !== ri.repMin || it.repMax !== ri.repMax)) {
+        out.push(n + ': reps ' + ri.repMin + '–' + ri.repMax + ' → ' + it.repMin + '–' + it.repMax);
+      }
+    });
+    return out;
+  }
+
+  // The routine as this workout was actually laid out. Routine notes are kept
+  // (workout notes are per-session); set values become the template.
+  function routineItemsFrom(items, r) {
+    return items.map(function (it) {
+      const ri = findItem(r.items, it.exerciseId);
+      return {
+        exerciseId: it.exerciseId,
+        restSec: it.restSec || 0,
+        repMin: it.repMin,
+        repMax: it.repMax,
+        notes: ri ? (ri.notes || '') : '',
+        sets: it.sets.map(function (s) {
+          return {
+            type: s.type || 'normal',
+            weight: s.weight === '' || s.weight == null ? '' : Number(s.weight),
+            reps: s.reps === '' || s.reps == null ? '' : Number(s.reps)
+          };
+        })
+      };
+    });
   }
 
   function endActive() {
