@@ -91,6 +91,27 @@
       DB.saveNow('exercises');
     }
 
+    // Routines shipped with the app (App.BUNDLED_ROUTINES): add each once.
+    const imported = (S.settings.importedRoutines || []).slice();
+    App.BUNDLED_ROUTINES.forEach(function (b) {
+      if (imported.indexOf(b.key) >= 0) return;
+      S.saveRoutine({
+        name: b.name,
+        items: b.items.filter(function (it) { return S.exercise(it[0]); }).map(function (it) {
+          const rr = S.defaultRepRange(it[0]);
+          return {
+            exerciseId: it[0], restSec: it[1], repMin: rr.min, repMax: rr.max, notes: '',
+            sets: it[2].map(function (s) { return { type: s[0], weight: s[1], reps: s[2] }; })
+          };
+        })
+      });
+      imported.push(b.key);
+    });
+    if (imported.length !== (S.settings.importedRoutines || []).length) {
+      DB.saveNow('routines');
+      DB.setSettings({ importedRoutines: imported });
+    }
+
     // One-time: before the finish-time "Update routine?" prompt existed,
     // routines never learned sets you added during a workout (the editor
     // starts each exercise at 1 set). Match each routine exercise's sets to

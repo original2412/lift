@@ -64,6 +64,7 @@
     ['Pull-Up', 'Back', 'Bodyweight'],
     ['Chin-Up', 'Back', 'Bodyweight'],
     ['Machine Row', 'Back', 'Machine'],
+    ['Iso-Lateral Row (Machine)', 'Back', 'Machine'],
     ['Rack Pull', 'Back', 'Barbell'],
     ['Back Extension', 'Back', 'Bodyweight'],
 
@@ -183,7 +184,7 @@
     'Push-Up': ['Triceps'], 'Dip': ['Triceps'],
     'Deadlift': ['Hamstrings', 'Glutes'], 'Rack Pull': ['Glutes', 'Traps'], 'Back Extension': ['Glutes', 'Hamstrings'],
     'Barbell Row': ['Biceps'], 'Pendlay Row': ['Biceps'], 'T-Bar Row': ['Biceps'], 'Dumbbell Row': ['Biceps'],
-    'Seated Cable Row': ['Biceps'], 'Machine Row': ['Biceps'], 'Lat Pulldown': ['Biceps'],
+    'Seated Cable Row': ['Biceps'], 'Machine Row': ['Biceps'], 'Iso-Lateral Row (Machine)': ['Biceps'], 'Lat Pulldown': ['Biceps'],
     'Wide-Grip Pulldown': ['Biceps'], 'Pull-Up': ['Biceps'], 'Chin-Up': ['Biceps'],
     'Overhead Press': ['Triceps'], 'Seated Dumbbell Press': ['Triceps'], 'Arnold Press': ['Triceps'],
     'Machine Shoulder Press': ['Triceps'], 'Upright Row': ['Traps'],
@@ -214,10 +215,28 @@
     return [8, 12];
   }
 
+  // Routines shipped to the app and added once on boot (see app.js). Once
+  // added — or deleted by you afterwards — a key is never re-added.
+  // Set tuples: [type, kg, reps]; kg for Pull-Up is added weight.
+  App.BUNDLED_ROUTINES = [
+    {
+      key: 'hevy:klI9RXBzbpC', // hevy.com/routine/klI9RXBzbpC
+      name: 'B2',
+      items: [
+        ['ex_pull_up', 90, [['normal', 20, 7], ['normal', 20, 7], ['normal', 20, 6]]],
+        ['ex_iso_lateral_row_machine', 90, [['warmup', 27.5, 8], ['normal', 55, 11], ['normal', 55, 11], ['normal', 55, 11]]],
+        ['ex_lying_leg_curl', 90, [['warmup', 27.5, 8], ['normal', 55, 11], ['normal', 55, 9], ['normal', 50, 10]]],
+        ['ex_goblet_squat', 90, [['normal', 28, 10], ['normal', 20, 10], ['normal', 22, 10], ['normal', 28, 10], ['normal', 20, 10], ['normal', 22, 10]]],
+        ['ex_behind_the_back_cable_curl', 90, [['normal', 7.5, 10], ['normal', 7.5, 12], ['normal', 7.5, 10], ['normal', 7.5, 10]]],
+        ['ex_machine_crunch', 90, [['normal', 42.5, 13], ['normal', 42.5, 13], ['normal', 45, 13]]]
+      ]
+    }
+  ];
+
   App.seed = {
     // Bump whenever RAW/NO_IMAGE data changes, so existing devices pick up
     // the update (see app.js boot — built-ins get merged, customs untouched).
-    VERSION: 4,
+    VERSION: 5,
     exercises: function () {
       return RAW.map(function (r) {
         var id = r[3] || slug(r[0]);
