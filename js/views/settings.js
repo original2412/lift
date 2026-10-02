@@ -88,6 +88,13 @@
       }));
 
       card.appendChild(restAlertRow());
+      card.appendChild(el('div.list-item', null, [
+        el('div.grow', null, [
+          el('div.name', { text: 'Rest-end sound' }),
+          el('div.meta', { text: 'Plays when the app is open, at your phone’s media volume — test it with your headphones in' })
+        ]),
+        el('button.pill', { text: 'Play', onclick: function () { UI.unlockAudio(); UI.chime(); UI.buzz([200, 100, 200]); } })
+      ]));
       v.appendChild(card);
 
       // --- Data ---

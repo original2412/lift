@@ -122,22 +122,45 @@
       if (actx.state === 'suspended') actx.resume();
     } catch (e) {}
   };
+  // Loud enough to cut through music in headphones: three rising beeps,
+  // played twice, around 1–2.6 kHz (where hearing is most sensitive), each
+  // a sine plus a quieter square for bite, all through a compressor so the
+  // overall level is pushed up without clipping.
   UI.chime = function () {
     UI.unlockAudio();
     if (!actx) return;
-    const t0 = actx.currentTime + 0.02;
-    [[0, 880], [0.18, 880], [0.36, 1320]].forEach(function (n) {
-      const o = actx.createOscillator();
-      const g = actx.createGain();
-      o.type = 'sine';
-      o.frequency.value = n[1];
-      g.gain.setValueAtTime(0.0001, t0 + n[0]);
-      g.gain.exponentialRampToValueAtTime(0.4, t0 + n[0] + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + n[0] + 0.16);
-      o.connect(g);
-      g.connect(actx.destination);
-      o.start(t0 + n[0]);
-      o.stop(t0 + n[0] + 0.18);
+    const comp = actx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.knee.value = 6;
+    comp.ratio.value = 8;
+    comp.attack.value = 0.002;
+    comp.release.value = 0.1;
+    const master = actx.createGain();
+    master.gain.value = 1.6;
+    master.connect(comp);
+    comp.connect(actx.destination);
+
+    const t0 = actx.currentTime + 0.03;
+    const notes = [1046, 1568, 2093];
+    [0, 0.75].forEach(function (rep) {
+      notes.forEach(function (f, i) {
+        const at = t0 + rep + i * 0.17;
+        const dur = i === notes.length - 1 ? 0.26 : 0.13;
+        [['sine', 0.9], ['square', 0.22]].forEach(function (layer) {
+          const o = actx.createOscillator();
+          const g = actx.createGain();
+          o.type = layer[0];
+          o.frequency.value = f;
+          g.gain.setValueAtTime(0.0001, at);
+          g.gain.exponentialRampToValueAtTime(layer[1], at + 0.008);
+          g.gain.setValueAtTime(layer[1], at + dur - 0.04);
+          g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+          o.connect(g);
+          g.connect(master);
+          o.start(at);
+          o.stop(at + dur + 0.02);
+        });
+      });
     });
   };
 
