@@ -136,7 +136,9 @@
     comp.attack.value = 0.002;
     comp.release.value = 0.1;
     const master = actx.createGain();
-    master.gain.value = 0.75;
+    // Settings → Rest-end volume (default 50% = the tuned "medium" level)
+    const vol = App.store && App.store.settings.chimeVolume != null ? App.store.settings.chimeVolume : 50;
+    master.gain.value = 1.5 * vol / 100;
     master.connect(comp);
     comp.connect(actx.destination);
 
@@ -166,16 +168,30 @@
 
   // ---- duration wheel picker (0 = off, 5s steps up to 10 min) ----
   UI.durationPicker = function (opts) {
-    const STEP = 5, MAX = 600, ITEM = 44;
     const values = [];
-    for (let s = 0; s <= MAX; s += STEP) values.push(s);
-    let idx = Math.round((opts.value || 0) / STEP);
-    idx = Math.max(0, Math.min(values.length - 1, idx));
+    for (let s = 0; s <= 600; s += 5) values.push(s);
+    UI.wheelPicker({
+      title: opts.title || 'Rest timer',
+      values: values,
+      value: opts.value || 0,
+      label: function (v) { return v ? U.fmtClock(v) : 'Off'; },
+      onDone: opts.onDone
+    });
+  };
+
+  // ---- generic scroll-wheel picker ----
+  // opts: { title, values[], value, label(v), onDone(v) } — selects the value
+  // closest to opts.value.
+  UI.wheelPicker = function (opts) {
+    const ITEM = 44;
+    const values = opts.values;
+    let idx = 0;
+    values.forEach(function (v, i) { if (Math.abs(v - opts.value) < Math.abs(values[idx] - opts.value)) idx = i; });
 
     const wheel = UI.el('div.wheel');
     const items = values.map(function (v, i) {
       return UI.el('div.wheel-item', {
-        text: v ? U.fmtClock(v) : 'Off',
+        text: opts.label(v),
         onclick: function () { wheel.scrollTo({ top: i * ITEM, behavior: 'smooth' }); }
       });
     });

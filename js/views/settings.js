@@ -88,12 +88,30 @@
       }));
 
       card.appendChild(restAlertRow());
+      const vol = st.chimeVolume != null ? st.chimeVolume : 50;
       card.appendChild(el('div.list-item', null, [
         el('div.grow', null, [
           el('div.name', { text: 'Rest-end sound' }),
-          el('div.meta', { text: 'Plays when the app is open, at your phone’s media volume — test it with your headphones in' })
+          el('div.meta', { text: 'Volume when the app is open (on top of your phone’s media volume). Tap Play to hear it.' })
         ]),
-        el('button.pill', { text: 'Play', onclick: function () { UI.unlockAudio(); UI.chime(); UI.buzz([200, 100, 200]); } })
+        el('button.pill', { text: vol + '%', 'aria-label': 'Rest-end volume', onclick: function (e) {
+          const btn = e.currentTarget;
+          UI.unlockAudio(); // the picker's Save is a tap, so the preview may play
+          const values = [];
+          for (let p = 10; p <= 100; p += 10) values.push(p);
+          UI.wheelPicker({
+            title: 'Rest-end volume',
+            values: values,
+            value: vol,
+            label: function (p) { return p + '%'; },
+            onDone: function (p) {
+              DB.setSettings({ chimeVolume: p });
+              btn.textContent = p + '%';
+              UI.chime();
+            }
+          });
+        } }),
+        el('button.pill', { text: 'Play', style: { marginLeft: '6px' }, onclick: function () { UI.unlockAudio(); UI.chime(); UI.buzz([200, 100, 200]); } })
       ]));
       v.appendChild(card);
 
