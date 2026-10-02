@@ -3,10 +3,10 @@
   'use strict';
   const App = window.App;
 
-  // Server in push-server/. url is empty until it's deployed — then push is
-  // simply "unsupported" and the service-worker timer fallback is used.
+  // Server in push-server/ (Cloudflare Worker). With an empty url push is
+  // "unsupported" and the service-worker timer fallback is used.
   const CFG = {
-    url: '',
+    url: 'https://lift-push.lift-push.workers.dev',
     vapidPublicKey: 'BIcjAsrher16c2uBtNzIKG6B_JPm4J-3zgUbhibipbcvN6EM0cqgteZEB6Gy1THJMyIgihzhpvDX99UXjU5RjOc'
   };
   const LS_KEY = 'lift.v1.push';
