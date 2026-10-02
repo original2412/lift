@@ -136,7 +136,7 @@
     comp.attack.value = 0.002;
     comp.release.value = 0.1;
     const master = actx.createGain();
-    master.gain.value = 1.6;
+    master.gain.value = 0.75;
     master.connect(comp);
     comp.connect(actx.destination);
 
@@ -146,7 +146,7 @@
       notes.forEach(function (f, i) {
         const at = t0 + rep + i * 0.17;
         const dur = i === notes.length - 1 ? 0.26 : 0.13;
-        [['sine', 0.9], ['square', 0.22]].forEach(function (layer) {
+        [['sine', 0.9], ['square', 0.12]].forEach(function (layer) {
           const o = actx.createOscillator();
           const g = actx.createGain();
           o.type = layer[0];

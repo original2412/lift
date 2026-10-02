@@ -30,7 +30,7 @@
     ]);
   };
 
-  // One-line summary card for Home.
+  // One-line summary card for Home (always shown so the Coach is findable).
   App.coachCard = function () {
     const s = C.summary();
     const bits = [];
@@ -38,7 +38,12 @@
     if (s.stalled.length) bits.push(s.stalled.length + ' stalled');
     if (s.failureDue.length) bits.push(s.failureDue.length + ' failure check' + (s.failureDue.length > 1 ? 's' : '') + ' due');
     if (s.longRunning.length) bits.push(s.longRunning.length + ' to rotate');
-    if (!bits.length) return null;
+    if (C.deloadActive()) bits.unshift('Deload week');
+    if (!bits.length) {
+      bits.push(S.workouts().length < 4
+        ? 'Learning your training — insights after a few workouts'
+        : 'All good — nothing needs attention');
+    }
     return el('a.card.tight.coach-link', { href: '#/coach' }, [
       el('span.target-ic', { html: svg(ICON.target) }),
       el('div.grow', null, [el('strong', { text: 'Coach' }), el('div.muted.tiny', { text: bits.join(' · ') })]),

@@ -26,6 +26,7 @@
     ctx.bind(function () {
       const v = UI.clear(ctx.el);
       v.appendChild(el('div.page-head', null, [el('h1', { text: 'Stats' })]));
+      v.appendChild(App.coachCard());
 
       const weeks = S.weeklyVolume(12);
       v.appendChild(thisWeekCard(weeks));

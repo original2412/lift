@@ -102,11 +102,8 @@
 
       const deload = App.deloadCard(true);
       if (deload) v.appendChild(deload);
-      if (S.workouts().length) {
-        const coach = App.coachCard();
-        if (coach) v.appendChild(coach);
-        v.appendChild(weekCard());
-      }
+      v.appendChild(App.coachCard());
+      if (S.workouts().length) v.appendChild(weekCard());
 
       v.appendChild(el('div.rowsplit', { style: { margin: '6px 2px 10px' } }, [
         el('div.section-label', { text: 'Routines', style: { margin: 0 } }),
