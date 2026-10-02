@@ -190,6 +190,7 @@
 
   function menu(w) {
     UI.menu(w.name, [
+      App.canResume(w) ? { label: 'Continue workout', icon: ICON.play, onClick: function () { App.workout.resumeFinished(w); } } : null,
       { label: 'Rename', icon: ICON.edit, onClick: function () {
         UI.prompt({ title: 'Rename workout', value: w.name }).then(function (name) {
           if (name != null && name.trim()) { w.name = name.trim(); App.db.save('workouts'); App.store.emit(); }

@@ -70,7 +70,22 @@
       repMin: rr.min, repMax: rr.max
     });
     applyTarget(item, null);
+    if (App.coach.deloadActive()) halveForDeload(item);
     return item;
+  }
+
+  // Deload week: same weights (see coach.nextTarget), half the working sets,
+  // no drop sets. Warm-ups stay.
+  function halveForDeload(item) {
+    const work = item.sets.filter(function (s) { return S.setGroup(s.type) === 'work'; }).length;
+    const keep = Math.ceil(work / 2);
+    let seen = 0;
+    item.sets = item.sets.filter(function (s) {
+      const g = S.setGroup(s.type);
+      if (g === 'warmup') return true;
+      if (g === 'drop') return false;
+      return ++seen <= keep;
+    });
   }
 
   function itemFromRoutine(rit) {
@@ -84,7 +99,69 @@
     });
   }
 
+  // Seconds trained so far. A resumed workout counts its earlier part plus
+  // the time since resuming — not the gap in between (e.g. driving to
+  // another gym).
+  function elapsedSec(a) {
+    if (a.resumedAt) return (a.priorDurationSec || 0) + (Date.now() - a.resumedAt) / 1000;
+    return (Date.now() - a.startedAt) / 1000;
+  }
+  App.workoutElapsed = elapsedSec;
+
+  const RESUME_WINDOW_MS = 24 * 3600 * 1000;
+  App.canResume = function (w) { return !!w && Date.now() - (w.endedAt || w.startedAt) < RESUME_WINDOW_MS; };
+
+  // Reopen a finished workout: done sets stay done; if it came from a routine,
+  // exercises and sets you didn't get to are added back. Finishing again
+  // replaces the history entry (same id); cancelling leaves it untouched.
+  function resumeFinished(w) {
+    const a = {
+      id: w.id,
+      name: w.name,
+      routineId: w.routineId || null,
+      startedAt: w.startedAt,
+      resumedAt: Date.now(),
+      priorDurationSec: w.durationSec || 0,
+      resumed: true,
+      failChecksAssigned: true,
+      rest: null,
+      items: w.items.map(function (it) {
+        return {
+          exerciseId: it.exerciseId, notes: it.notes || '', restSec: it.restSec || 0,
+          repMin: it.repMin, repMax: it.repMax,
+          sets: it.sets.map(function (s) { return Object.assign({}, s, { done: true }); })
+        };
+      })
+    };
+    const routine = a.routineId ? S.routine(a.routineId) : null;
+    if (routine) {
+      routine.items.forEach(function (ri) {
+        const it = a.items.filter(function (x) { return x.exerciseId === ri.exerciseId; })[0];
+        if (!it) {
+          a.items.push(itemFromRoutine(ri));
+          return;
+        }
+        // add the routine's sets beyond what you completed, per set group
+        const done = {};
+        it.sets.forEach(function (s) { const g = S.setGroup(s.type); done[g] = (done[g] || 0) + 1; });
+        const seen = {};
+        ri.sets.forEach(function (rs) {
+          const g = S.setGroup(rs.type || 'normal');
+          seen[g] = (seen[g] || 0) + 1;
+          if (seen[g] > (done[g] || 0)) it.sets.push({ type: rs.type || 'normal', weight: rs.weight, reps: rs.reps, done: false });
+        });
+        applyTarget(it, w.id);
+      });
+    }
+    DB.setActive(a);
+    R.go('/workout');
+  }
+
   const Workout = {
+    resumeFinished: function (w) {
+      if (!App.canResume(w)) { UI.toast('Only workouts from the last 24 hours can be continued'); return; }
+      guardExisting(function () { resumeFinished(w); });
+    },
     startEmpty: function () {
       guardExisting(function () {
         DB.setActive(newActive());
@@ -120,6 +197,16 @@
   App.router.add('/workout', function (ctx) {
     const a = DB.state.active;
     if (!a) { R.go('/', true); return; }
+
+    // Once per workout: flag up to two exercises that are due a failure
+    // check (safe ones only — machines, cables, isolation).
+    if (!a.failChecksAssigned) {
+      a.failChecksAssigned = true;
+      a.items.filter(function (it) { return App.coach.failureCheckDue(it.exerciseId); })
+        .slice(0, 2)
+        .forEach(function (it) { it._failCheck = true; });
+      DB.saveNow('active');
+    }
 
     let wake = null;
     requestWake();
@@ -226,14 +313,22 @@
       let main, why;
       if (!plan) {
         main = 'First time — find your weight';
-        why = 'Pick a weight you can do for ' + item.repMin + '–' + item.repMax + ' reps close to failure';
+        why = 'Pick a weight you can do for ' + item.repMin + '–' + item.repMax + ' reps with 1–3 left in the tank';
+      } else if (plan.counts.deload) {
+        main = 'Deload: same weight, half the sets';
+        why = 'Recovery week — stop every set with 3–4 reps left';
       } else {
         const work = plan.byType.work;
         const shown = work.slice(0, 4).map(function (t) { return w(t.weight) + '×' + t.reps; });
         main = 'Target ' + u + ': ' + shown.join(' · ') + (work.length > 4 ? ' …' : '');
-        if (plan.up && !plan.reps) why = 'Hit ' + item.repMax + ' reps on every set → +' + w(plan.incKg) + ' ' + u;
-        else if (!plan.up) why = 'One more rep than last time on each set';
-        else why = 'Sets that hit ' + item.repMax + ' go up ' + w(plan.incKg) + ' ' + u + ', the rest +1 rep';
+        const c = plan.counts;
+        const easy = work.some(function (t) { return t.kind === 'weight' && t.prevEffort === 'easy'; });
+        const parts = [];
+        if (c.weight) parts.push(easy ? 'heavier — it felt easy' : 'heavier where you hit ' + item.repMax);
+        if (c.down) parts.push('lighter where you fell below ' + item.repMin);
+        if (c.reps) parts.push(c.weight || c.down ? '+1 rep on the rest' : 'one more rep than last time');
+        why = parts.join('; ');
+        why = why.charAt(0).toUpperCase() + why.slice(1);
       }
       return el('button.target-row', { onclick: function () { editRange(item); }, 'aria-label': 'Change rep range' }, [
         el('span.target-ic', { html: svg(ICON.target) }),
@@ -256,7 +351,12 @@
       UI.durationPicker({
         title: 'Rest · ' + S.exerciseName(item.exerciseId),
         value: item.restSec || 0,
-        onDone: function (sec) { item.restSec = sec; persist(); render(); }
+        onDone: function (sec) {
+          item.restSec = sec;
+          persist(); render();
+          // Singer 2024: <60s costs reps on later sets; past ~90s no difference
+          if (sec > 0 && sec < 60) UI.toast('Under 60s rest costs reps on later sets — 90s+ is better for growth', 3500);
+        }
       });
     }
     function bumpRest(delta) {
@@ -288,7 +388,7 @@
     }
 
     function updateClocks() {
-      if (clockEl) clockEl.textContent = U.fmtClock((Date.now() - a.startedAt) / 1000);
+      if (clockEl) clockEl.textContent = U.fmtClock(elapsedSec(a));
       if (!a.rest || !dockTime) return;
       const remain = (a.rest.endsAt - Date.now()) / 1000;
       if (remain > 0) {
@@ -341,6 +441,22 @@
           it.repMin = rr.min; it.repMax = rr.max;
         }
         card.appendChild(targetRow(it));
+        if (!App.coach.deloadActive()) {
+          const tr = App.coach.trend(it.exerciseId);
+          if (tr.status === 'stalled') {
+            card.appendChild(el('button.stall-row', { onclick: function () { stallSheet(it); } }, [
+              el('span', { text: '⚠' }),
+              el('span.grow', { text: 'No progress for ' + tr.stalledFor + ' sessions — see options' }),
+              el('span', { html: svg(ICON.chevronR, ' style="width:16px;height:16px"') })
+            ]));
+          }
+        }
+        if (it._failCheck === true) {
+          card.appendChild(el('div.fail-check', null, [
+            el('strong', { text: 'Failure check · ' }),
+            'On your last set, keep going until you can’t do another clean rep. It shows how hard your “Good” sets really are.'
+          ]));
+        }
       }
 
       const table = el('table.set-grid');
@@ -370,7 +486,29 @@
 
       function renderSetRows() {
         UI.clear(tb);
-        it.sets.forEach(function (st, si) { tb.appendChild(setRow(st, si)); });
+        it.sets.forEach(function (st, si) { UI.append(tb, setRow(st, si)); });
+      }
+
+      function lastWorkingIdx() {
+        for (let i = it.sets.length - 1; i >= 0; i--) if (S.setGroup(it.sets[i].type) === 'work') return i;
+        return -1;
+      }
+
+      function defaultEffort(si) {
+        if (App.coach.deloadActive()) return 'easy';
+        if (it._failCheck === true && si === lastWorkingIdx()) return 'fail';
+        return 'good';
+      }
+
+      // "How hard was it?" — shown under the most recently completed working set
+      function effortRow(st) {
+        return el('tr.effort-tr', null, el('td', { colspan: 5 }, el('div.effort', null,
+          [el('span.effort-q', { text: 'How hard?' })].concat(App.coach.EFFORTS.map(function (e) {
+            return el('button.effort-btn' + (st.effort === e.key ? '.on' : '') + '.' + e.key, {
+              onclick: function () { st.effort = e.key; persist(); renderSetRows(); }
+            }, [el('span', { text: e.label }), el('small', { text: e.sub })]);
+          }))
+        )));
       }
 
       // Last session's set matching set `si`: same type group (working /
@@ -421,15 +559,13 @@
           onclick: function () { toggleDone(st, si); }
         })));
 
-        // PR tag row
+        const rows = [tr];
         if (st.done && st._pr) {
-          const prTr = el('tr', null, el('td', { colspan: 5, style: { paddingTop: '0' } },
-            el('span.pr-tag', { html: svg(ICON.trophy, ' style="width:12px;height:12px" fill="currentColor" stroke="none"') + ' ' + st._pr })));
-          // append after; handled by returning fragment-like: we push directly
-          tb.appendChild(tr);
-          return prTr;
+          rows.push(el('tr', null, el('td', { colspan: 5, style: { paddingTop: '0' } },
+            el('span.pr-tag', { html: svg(ICON.trophy, ' style="width:12px;height:12px" fill="currentColor" stroke="none"') + ' ' + st._pr }))));
         }
-        return tr;
+        if (st.done && si === it._effortIdx && S.setGroup(st.type) === 'work') rows.push(effortRow(st));
+        return rows;
       }
 
       // prevVal: last session's value, shown greyed when the field is empty
@@ -465,10 +601,83 @@
             const pr = checkPR(it.exerciseId, st);
             if (pr) { st._pr = pr; UI.buzz([40, 40, 90]); }
           }
+          if (S.setGroup(st.type) === 'work') {
+            if (!st.effort) st.effort = defaultEffort(si);
+            it._effortIdx = si;
+            if (it._failCheck === true && si === lastWorkingIdx()) finishFailureCheck(si);
+          }
           if (it.restSec) startRest(it.restSec);
+        } else if (it._effortIdx === si) {
+          it._effortIdx = null;
         }
         persist();
         renderSetRows();
+      }
+
+      function finishFailureCheck(si) {
+        it._failCheck = 'done';
+        const res = App.coach.calibrate(it.sets, si);
+        if (!res) { render(); return; }
+        App.coach.recordCalibration(it.exerciseId, res);
+        const word = res.said === 'easy' ? 'Easy' : 'Good';
+        const msg = res.gap >= 2
+          ? 'You got ' + res.failReps + ' reps to failure — ' + res.gap + ' more than your “' + word + '” set suggested. Your normal sets are probably further from failure than they feel: push 1–2 reps harder.'
+          : res.gap <= -2
+            ? 'You got ' + res.failReps + ' reps to failure — fewer than expected. Your sets are already hard; “Good” may really be 0–1 in the tank. Keep it there.'
+            : 'You got ' + res.failReps + ' reps to failure — right about what your “' + word + '” set predicted. Your effort estimates are accurate.';
+        let r;
+        r = UI.sheet({
+          title: 'Failure check · ' + S.exerciseName(it.exerciseId),
+          body: el('p', { text: msg, style: { margin: '2px 2px 4px', lineHeight: '1.5' } }),
+          footer: el('button.btn.primary', { text: 'Got it', onclick: function () { r.close(); } }),
+          onClose: render
+        });
+      }
+
+      function stallSheet(item) {
+        const ex2 = S.exercise(item.exerciseId);
+        const T = App.muscleTarget(ex2.primary);
+        const wk = U.weekStart(Date.now()) - 7 * 86400000;
+        const lastWeek = S.weeklyMuscleSets(wk)[ex2.primary] || 0;
+        const altRange = item.repMax <= 10 ? [10, 15] : [6, 10];
+        const alts = App.coach.alternatives(item.exerciseId, a.items.map(function (x) { return x.exerciseId; }), 3);
+        const fat = App.coach.fatigue();
+        let ref;
+        const act = function (fn) { return function () { fn(); persist(); ref.close(); render(); }; };
+        const step = function (n, title, text, buttons) {
+          return el('div.stall-step', null, [
+            el('div.stall-n', { text: String(n) }),
+            el('div.grow', null, [el('strong', { text: title }), el('div.muted.tiny', { text: text }), buttons ? el('div.stall-actions', null, buttons) : null])
+          ]);
+        };
+        const under = lastWeek < T.min;
+        ref = UI.sheet({
+          title: 'Stalled · ' + ex2.name,
+          body: el('div', null, [
+            el('p.muted.tiny', { text: 'Your best estimated 1RM hasn’t gone up in 3+ sessions. Try these in order — the end-of-workout “Update routine?” question lets you keep a change.', style: { margin: '0 2px 10px' } }),
+            fat.suggest ? el('div.fail-check', { text: 'You also show signs of fatigue — a deload week may fix this by itself (see Home).' }) : null,
+            step(1, 'Check volume', ex2.primary + ': ' + U.fmtNum(lastWeek) + ' sets last week (zone ' + T.min + '–' + T.max + '). ' +
+              (under ? 'Below the minimum — add a set.' : 'In range — volume isn’t the problem.'),
+              under ? [el('button.btn.sm', { text: 'Add a set here', onclick: act(function () {
+                const p = item.sets.filter(function (s) { return S.setGroup(s.type) === 'work'; }).pop() || {};
+                item.sets.push({ type: 'normal', weight: p.weight || '', reps: p.reps || '', done: false });
+              }) })] : null),
+            step(2, 'Change the rep range', 'A new range is a new stimulus — loads and reps both grow muscle when sets are hard.',
+              [el('button.btn.sm', { text: 'Switch to ' + altRange[0] + '–' + altRange[1] + ' reps', onclick: act(function () {
+                item.repMin = altRange[0]; item.repMax = altRange[1]; applyTarget(item, a.id);
+              }) })]),
+            step(3, 'Swap the exercise', 'Same muscle, different angle. ↗ = trains the muscle stretched, which tends to grow it more.',
+              alts.map(function (x) {
+                return el('button.btn.sm', { text: (x.lengthened ? '↗ ' : '') + x.name, onclick: act(function () {
+                  item.exerciseId = x.id;
+                  const rr = S.defaultRepRange(x.id);
+                  item.repMin = rr.min; item.repMax = rr.max;
+                  item.sets.forEach(function (s) { if (!s.done) { s.weight = ''; s.reps = ''; } });
+                  applyTarget(item, a.id);
+                }) });
+              }))
+          ])
+        });
       }
 
       function itemMenu(item, i) {
@@ -542,8 +751,9 @@
         routineId: a.routineId,
         startedAt: a.startedAt,
         endedAt: endedAt,
-        durationSec: Math.round((endedAt - a.startedAt) / 1000),
+        durationSec: Math.round(elapsedSec(a)),
         notes: '',
+        deload: App.coach.deloadActive() || undefined,
         items: a.items
           .map(function (it) {
             return {
@@ -553,7 +763,11 @@
               repMin: it.repMin, repMax: it.repMax,
               sets: it.sets
                 .filter(function (s) { return s.done; })
-                .map(function (s) { return { type: s.type, weight: Number(s.weight) || 0, reps: Number(s.reps) || 0, done: true }; })
+                .map(function (s) {
+                  const out = { type: s.type, weight: Number(s.weight) || 0, reps: Number(s.reps) || 0, done: true };
+                  if (s.effort) out.effort = s.effort;
+                  return out;
+                })
             };
           })
           .filter(function (it) { return it.sets.length; })
@@ -578,6 +792,8 @@
       });
       record.prs = prs;
 
+      // a resumed workout replaces its earlier entry instead of duplicating it
+      if (a.resumed) S.deleteWorkout(a.id);
       S.commitWorkout(record);
       endActive();
       R.go('/summary/' + record.id, true);
@@ -627,6 +843,10 @@
 
     v.appendChild(el('button.btn.primary', { text: 'Done', style: { marginTop: '18px' }, onclick: function () { R.go('/', true); } }));
     v.appendChild(el('button.btn.ghost', { text: 'View in history', style: { marginTop: '10px' }, onclick: function () { R.go('/history/' + w.id, true); } }));
+    v.appendChild(el('button.btn.ghost', {
+      html: svg(ICON.play) + '<span>Not done? Continue this workout</span>', style: { marginTop: '10px' },
+      onclick: function () { App.workout.resumeFinished(w); }
+    }));
   }, { tab: 'home', fullscreen: true });
 
   // ---------------- helpers ----------------

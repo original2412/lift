@@ -55,7 +55,7 @@
     if (resumeBar && DB.state.active) {
       const s = resumeBar.querySelector('.s');
       if (s) s.textContent = U.pluralize(DB.state.active.items.length, 'exercise') + ' · ' +
-        U.fmtClock((Date.now() - DB.state.active.startedAt) / 1000);
+        U.fmtClock(App.workoutElapsed(DB.state.active));
     }
   }, 1000);
 
@@ -79,7 +79,7 @@
         if (!f) return;
         e.name = f.name; e.primary = f.primary; e.equipment = f.equipment;
         e.tracking = f.tracking; e.image = f.image;
-        e.secondary = f.secondary; e.repMin = f.repMin; e.repMax = f.repMax;
+        e.secondary = f.secondary; e.repMin = f.repMin; e.repMax = f.repMax; e.lengthened = f.lengthened;
         delete freshById[e.id];
       });
       const existingIds = {};

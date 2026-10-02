@@ -208,6 +208,14 @@
   var ISO = ['Dumbbell Fly', 'Cable Fly', 'Cable Fly Crossover', 'Butterfly (Pec Deck)', 'Leg Extension',
     'Lying Leg Curl', 'Seated Leg Curl', 'Front Raise', 'Straight-Arm Pulldown', 'Barbell Shrug', 'Dumbbell Shrug',
     'Upright Row'];
+  // Load the target muscle at long lengths (deep stretch under tension),
+  // which looks favourable for growth (Maeo 2021 seated vs lying leg curl;
+  // Pedrosa 2022). Preferred when suggesting a swap for a stalled lift.
+  var LENGTHENED = ['Seated Leg Curl', 'Romanian Deadlift', 'Stiff-Leg Deadlift', 'Incline Dumbbell Curl',
+    'Overhead Triceps Extension', 'Dumbbell Fly', 'Cable Fly', 'Cable Fly Crossover', 'Incline Dumbbell Press',
+    'Bulgarian Split Squat', 'Walking Lunge', 'Hack Squat', 'Pull-Up', 'Lat Pulldown', 'Standing Calf Raise',
+    'Leg Press Calf Raise', 'Behind-the-Back Cable Curl', 'Cable Lateral Raise', 'Dip', 'Good Morning'];
+
   function repRange(name, primary) {
     if (HEAVY.indexOf(name) >= 0) return [6, 10];
     if (HIGH.indexOf(name) >= 0) return [12, 20];
@@ -236,7 +244,7 @@
   App.seed = {
     // Bump whenever RAW/NO_IMAGE data changes, so existing devices pick up
     // the update (see app.js boot — built-ins get merged, customs untouched).
-    VERSION: 5,
+    VERSION: 6,
     exercises: function () {
       return RAW.map(function (r) {
         var id = r[3] || slug(r[0]);
@@ -246,6 +254,7 @@
           name: r[0],
           primary: r[1],
           secondary: SECONDARY[r[0]] || [],
+          lengthened: LENGTHENED.indexOf(r[0]) >= 0,
           repMin: rr[0],
           repMax: rr[1],
           equipment: r[2],

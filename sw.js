@@ -12,6 +12,7 @@ const ASSETS = [
   './js/ui.js',
   './js/charts.js',
   './js/push.js',
+  './js/coach.js',
   './js/views/home.js',
   './js/views/routine-edit.js',
   './js/views/workout.js',
@@ -19,6 +20,7 @@ const ASSETS = [
   './js/views/exercises.js',
   './js/views/stats.js',
   './js/views/settings.js',
+  './js/views/coach.js',
   './js/router.js',
   './js/app.js',
   './icons/icon.svg'

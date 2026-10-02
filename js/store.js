@@ -202,11 +202,12 @@
     },
 
     // Most recent committed performance of an exercise (for "previous" hints).
-    lastPerformance: function (exId, exceptWorkoutId) {
+    lastPerformance: function (exId, exceptWorkoutId, skipDeload) {
       const hist = S.workouts();
       for (let i = 0; i < hist.length; i++) {
         const w = hist[i];
         if (exceptWorkoutId && w.id === exceptWorkoutId) continue;
+        if (skipDeload && w.deload) continue;
         const it = (w.items || []).find(function (x) { return x.exerciseId === exId; });
         if (it) {
           return {
@@ -301,44 +302,37 @@
 
     // ---- hypertrophy coaching ----
 
-    // Per-set double progression from last session. Each set is matched to
-    // the same set last time (by position within its type), so ramped or
-    // pyramid sets keep their shape: a working set that reached the top of
-    // the rep range goes up one increment and drops to the bottom of the
-    // range; otherwise same weight, one more rep. Warm-ups and drop sets are
-    // copied as they were. Returns null with no history to go on.
-    //   { byType: { work: [...], warmup: [...], drop: [...] }, up, reps, incKg }
-    //   each entry: { weight, reps, kind: 'weight'|'reps'|'same', prevWeight, prevReps }
+    // Next-session plan from last (non-deload) session. Each set is matched
+    // to the same set last time (by position within its type), so ramped or
+    // pyramid sets keep their shape; each working set's target comes from
+    // App.coach.nextTarget using its weight, reps and how hard it was.
+    // Warm-ups and drop sets are copied. Null with no history to go on.
+    //   { byType: { work: [...], warmup: [...], drop: [...] }, counts: { weight, down, reps, deload } }
+    //   each entry: { weight, reps, kind, prevWeight, prevReps, prevEffort }
     progressionPlan: function (exId, repMin, repMax, exceptWorkoutId) {
       const ex = S.exercise(exId);
       if (ex && ex.tracking === 'cardio') return null;
-      const last = S.lastPerformance(exId, exceptWorkoutId);
+      const last = S.lastPerformance(exId, exceptWorkoutId, true);
       if (!last || !last.sets.length) return null;
-      const incKg = S.settings.units === 'lb'
-        ? (S.settings.incLb || 5) * U.KG_PER_LB
-        : (S.settings.incKg || 2.5);
       const byType = {};
-      let up = 0, more = 0;
-      last.sets.forEach(function (s) {
+      const counts = { weight: 0, down: 0, reps: 0, deload: 0 };
+      last.sets.forEach(function (s, i) {
         const t = S.setGroup(s.type);
-        const w = Number(s.weight) || 0, r = Number(s.reps) || 0;
+        const r = Number(s.reps) || 0;
         let target;
         if (t !== 'work' || !r) {
           target = { weight: s.weight, reps: s.reps, kind: 'same' };
-        } else if (r >= repMax && w > 0) {
-          target = { weight: w + incKg, reps: repMin, kind: 'weight' };
-          up++;
         } else {
-          // bodyweight sets can't add load, so they keep adding reps past the range
-          target = { weight: s.weight, reps: w > 0 ? Math.min(repMax, r + 1) : r + 1, kind: 'reps' };
-          more++;
+          target = App.coach.nextTarget(s, App.coach.rirOf(last.sets, i), repMin, repMax);
+          counts[target.kind]++;
         }
-        target.prevWeight = w;
+        target.prevWeight = Number(s.weight) || 0;
         target.prevReps = r;
+        target.prevEffort = s.effort || null;
         (byType[t] = byType[t] || []).push(target);
       });
       if (!byType.work) return null;
-      return { byType: byType, up: up, reps: more, incKg: incKg };
+      return { byType: byType, counts: counts };
     },
 
     // Sets are matched across sessions within these groups.
@@ -380,10 +374,12 @@
           ((ex && ex.secondary) || []).forEach(function (sm) { counts[sm] = (counts[sm] || 0) + n * 0.5; });
         });
       }
+      const a = DB.state.active;
       DB.state.workouts.forEach(function (w) {
+        // a resumed workout is still in history; count only its live copy
+        if (a && a.resumed && w.id === a.id) return;
         if (w.startedAt >= weekStart && w.startedAt < end) add(w.items);
       });
-      const a = DB.state.active;
       if (a && a.startedAt >= weekStart && a.startedAt < end) add(a.items);
       return counts;
     },
