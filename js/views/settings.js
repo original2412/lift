@@ -238,11 +238,42 @@
       card.appendChild(el('div.list-item', null, [el('div.grow', null, [el('div.meta', { text: 'Cloud backup isn’t available here.' })])]));
       return card;
     }
-    if (!B.isOn()) {
+    if (B.account()) {
+      const acct = B.account(), err = B.lastError();
       card.appendChild(el('div.list-item', null, [
         el('div.grow', null, [
-          el('div.name', { text: 'Off' }),
-          el('div.meta', { text: 'Back up automatically after every change, encrypted with a recovery code only you have.' })
+          el('div.name', { text: 'Signed in as ' + (acct.email || acct.name || 'Google account') }),
+          el('div.meta', { text: err
+            ? 'Last sync failed (' + err + ')'
+            : (B.lastAt() ? 'Synced ' + U.relDay(B.lastAt()).toLowerCase() + ' at ' + U.fmtTime(B.lastAt()) + ' — restore on any phone by signing in' : 'Syncing…') })
+        ]),
+        el('button.pill', { text: 'Sync now', onclick: function () {
+          B.now().then(function (ok) {
+            UI.toast(ok ? 'Synced' : (B.lastError() ? 'Sync failed: ' + B.lastError() : 'Already up to date'));
+            App.store.emit();
+          });
+        } })
+      ]));
+      card.appendChild(el('button.list-item', { style: { width: '100%', textAlign: 'left' }, onclick: function () {
+        UI.confirm({ title: 'Sign out?', message: 'Your data stays on this phone and in your Google account; this phone just stops syncing.', confirmText: 'Sign out' })
+          .then(function (ok) { if (ok) { B.signOut(); App.store.emit(); } });
+      } }, [el('div.grow', null, [el('div.name', { text: 'Sign out' })])]));
+      return card;
+    }
+    if (!B.isOn()) {
+      if (B.googleAvailable()) {
+        card.appendChild(el('div.list-item', null, [
+          el('div.grow', null, [
+            el('div.name', { text: 'Sign in with Google' }),
+            el('div.meta', { text: 'Your workouts sync to your Google account automatically — sign in on any phone to get them back.' })
+          ]),
+          el('button.pill.google-btn', { html: googleG() + 'Continue', onclick: App.backup.signIn })
+        ]));
+      }
+      card.appendChild(el('div.list-item', null, [
+        el('div.grow', null, [
+          el('div.name', { text: B.googleAvailable() ? 'Or use a recovery code' : 'Off' }),
+          el('div.meta', { text: 'No account: backups are encrypted with a code only you have. Keep the code safe.' })
         ]),
         el('button.pill', { text: 'Turn on', onclick: App.backupUI.enable })
       ]));
@@ -270,6 +301,57 @@
       el('div.grow', null, [el('div.name', { text: 'Restore from a code' }), el('div.meta', { text: 'Bring back your data on this phone' })])
     ]));
     return card;
+  }
+
+  function googleG() {
+    return '<svg viewBox="0 0 48 48" width="15" height="15" style="vertical-align:-3px;margin-right:6px"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.3l7.9 6.1C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.4-4.6 7l7.4 5.7c4.3-4 6.9-9.9 6.9-17.2z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.6 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.8-5.8l-7.4-5.7c-2.1 1.4-4.8 2.2-8.4 2.2-6.3 0-11.6-4.2-13.5-10l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>';
+  }
+
+  // Back from Google: keep the session, then reconcile phone vs cloud.
+  App.router.add('/signin/:token', function (ctx) {
+    if (!App.backup.acceptSession(ctx.params.token)) { UI.toast('Sign-in failed — try again'); App.router.go('/settings', true); return; }
+    App.router.go('/settings', true);
+    UI.toast('Signed in — checking your cloud data…');
+    App.backup.fetchCloud().then(function (cloud) {
+      if (!cloud) return App.backup.now().then(function () { UI.toast('Signed in — your workouts now sync to your Google account', 3000); App.store.emit(); });
+      const cd = cloud.obj.data || {};
+      const cloudN = (cd.workouts || []).length;
+      if (!App.store.workouts().length) {
+        return App.backup.adopt(cloud, 'replace').then(function () { App.applyTheme(); UI.toast('Restored ' + U.pluralize(cloudN, 'workout'), 3000); App.router.go('/', true); });
+      }
+      reconcile(cloud);
+    }).catch(function (e) { UI.toast(e.message || 'Couldn’t reach the server'); App.store.emit(); });
+  }, { tab: 'settings' });
+
+  App.router.add('/signin-error/:why', function (ctx) {
+    const why = decodeURIComponent(ctx.params.why);
+    UI.toast(why === 'cancelled' || why === 'access_denied' ? 'Sign-in cancelled' : 'Sign-in failed (' + why + ')', 3500);
+    App.router.go('/settings', true);
+  }, { tab: 'settings' });
+
+  // Data on this phone and in the account: combine (union by id), or pick one.
+  function reconcile(cloud) {
+    const cd = cloud.obj.data || {};
+    let chosen = false, ref;
+    const pick = function (fn) { return function () { chosen = true; ref.close(); fn(); }; };
+    const done = function (msg) { return function () { App.applyTheme(); UI.toast(msg, 3000); App.store.emit(); }; };
+    ref = UI.sheet({
+      title: 'You have workouts here and in your account',
+      body: el('div', null, [
+        el('ul.change-list', null, [
+          el('li', { text: 'This phone: ' + U.pluralize(App.store.workouts().length, 'workout') + ', ' + U.pluralize(App.store.routines().length, 'routine') }),
+          el('li', { text: 'Your account: ' + U.pluralize((cd.workouts || []).length, 'workout') + ', ' + U.pluralize((cd.routines || []).length, 'routine') +
+            ' (saved ' + U.fmtDate(cloud.t, { day: 'numeric', month: 'short' }) + ')' })
+        ]),
+        el('p.faint.tiny', { text: 'Combining keeps everything from both — nothing is duplicated or lost.', style: { margin: '10px 2px 0' } })
+      ]),
+      footer: el('div', null, [
+        el('button.btn.primary', { text: 'Combine both', onclick: pick(function () { App.backup.adopt(cloud, 'merge').then(done('Combined and synced')); }) }),
+        el('button.btn.ghost', { text: 'Use my account’s data', style: { marginTop: '8px' }, onclick: pick(function () { App.backup.adopt(cloud, 'replace').then(done('Loaded from your account')); }) }),
+        el('button.btn.ghost', { text: 'Keep this phone’s data', style: { marginTop: '8px' }, onclick: pick(function () { App.backup.now().then(done('This phone’s data is now in your account')); }) })
+      ]),
+      onClose: function () { if (!chosen) { App.backup.signOut(); UI.toast('Not synced — sign in again when ready'); App.store.emit(); } }
+    });
   }
 
   App.backupUI = {

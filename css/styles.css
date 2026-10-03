@@ -364,6 +364,7 @@ select.input { appearance: none; -webkit-appearance: none; }
   background: var(--bg-elev-2); border: 1px solid var(--line); user-select: all; -webkit-user-select: all;
 }
 .nudge { display: flex; align-items: center; gap: 12px; border-color: var(--accent); }
+.google-btn { background: #fff; color: #1f1f1f; border-color: #dadce0; font-weight: 600; white-space: nowrap; }
 .nudge .grow { flex: 1; }
 
 /* finish: routine changes */

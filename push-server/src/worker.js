@@ -15,6 +15,13 @@
 // recovery code; <id> is a hash of that code. This server only ever sees
 // ciphertext and can't link a backup to a person.
 //
+// Google sign-in (OpenID Connect, implicit id_token + form_post):
+//   POST /auth/callback          ← Google posts { id_token, state }; we verify
+//                                  it and redirect to APP_URL#/signin/<session>
+//   GET  /me/data                → this user's synced data (404 if none)
+//   PUT  /me/data <json>         → replace it (previous kept as a fallback)
+// Sessions are HMAC-signed tokens (SESSION_SECRET), sent as a Bearer header.
+//
 // Secrets: VAPID_PRIVATE_JWK (JSON JWK, P-256). Vars: VAPID_PUBLIC_KEY
 // (base64url raw), VAPID_SUBJECT, ALLOWED_ORIGIN.
 
@@ -30,11 +37,15 @@ const PUSH_HOSTS = [
 
 export default {
   async fetch(req, env) {
+    const path = new URL(req.url).pathname;
+    // Google posts this as a top-level form navigation (no Origin to check)
+    if (path === '/auth/callback' && req.method === 'POST') return authCallback(req, env);
+
     const cors = corsHeaders(req, env);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (!cors['Access-Control-Allow-Origin']) return json({ error: 'origin not allowed' }, 403, cors);
 
-    const path = new URL(req.url).pathname;
+    if (path === '/me/data') return meData(req, env, cors);
     const bm = path.match(/^\/backup\/([a-f0-9]{64})$/);
     if (bm) return backupRoute(req, env, bm[1], cors);
     if (req.method !== 'POST') return json({ error: 'not found' }, 404, cors);
@@ -81,6 +92,91 @@ async function backupRoute(req, env, id, cors) {
   if (d.v !== 1 || typeof d.iv !== 'string' || typeof d.data !== 'string' || typeof d.t !== 'number') {
     return json({ error: 'bad backup' }, 400, cors);
   }
+  await stub.fetch('https://do/put', { method: 'POST', body: text });
+  return json({ ok: true }, 200, cors);
+}
+
+// ---------------- Google sign-in + per-user data ----------------
+
+const SESSION_DAYS = 365;
+let jwksCache = null; // { keys, at }
+
+async function authCallback(req, env) {
+  const app = env.APP_URL;
+  const back = (frag) => Response.redirect(app + '#/' + frag, 302);
+  let form;
+  try { form = await req.formData(); } catch (e) { return back('signin-error/bad-request'); }
+  const idToken = form.get('id_token'), state = form.get('state');
+  if (!idToken || !state) return back('signin-error/' + encodeURIComponent(form.get('error') || 'cancelled'));
+  let claims;
+  try { claims = await verifyGoogleIdToken(String(idToken), env); } catch (e) {
+    return back('signin-error/' + encodeURIComponent(e.message));
+  }
+  // the app put a random nonce in `state` and in the request; they must match
+  if (claims.nonce !== String(state)) return back('signin-error/nonce');
+  const token = await signSession({ sub: claims.sub, email: claims.email || '', name: claims.name || '' }, env);
+  return back('signin/' + token);
+}
+
+export async function verifyGoogleIdToken(jwt, env) {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) throw new Error('malformed token');
+  const header = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
+  const claims = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[1])));
+  if (header.alg !== 'RS256') throw new Error('bad alg');
+  const jwk = (await googleKeys(env)).find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error('unknown key');
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64urlDecode(parts[2]), utf8(parts[0] + '.' + parts[1]));
+  if (!ok) throw new Error('bad signature');
+  if (claims.iss !== 'accounts.google.com' && claims.iss !== 'https://accounts.google.com') throw new Error('bad issuer');
+  if (claims.aud !== env.GOOGLE_CLIENT_ID) throw new Error('wrong client');
+  if (!(claims.exp * 1000 > Date.now())) throw new Error('expired');
+  if (!claims.sub) throw new Error('no subject');
+  return claims;
+}
+
+async function googleKeys(env) {
+  if (jwksCache && Date.now() - jwksCache.at < 3600e3) return jwksCache.keys;
+  const res = await fetch(env.GOOGLE_JWKS_URL || 'https://www.googleapis.com/oauth2/v3/certs');
+  if (!res.ok) throw new Error('keys unavailable');
+  jwksCache = { keys: (await res.json()).keys, at: Date.now() };
+  return jwksCache.keys;
+}
+
+async function hmacKey(env) {
+  return crypto.subtle.importKey('raw', utf8(env.SESSION_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+
+export async function signSession(user, env) {
+  const body = b64urlEncode(utf8(JSON.stringify(Object.assign({}, user, { exp: Date.now() + SESSION_DAYS * 864e5 }))));
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', await hmacKey(env), utf8(body)));
+  return body + '.' + b64urlEncode(sig);
+}
+
+async function readSession(req, env) {
+  const m = (req.headers.get('Authorization') || '').match(/^Bearer ([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/);
+  if (!m) return null;
+  const ok = await crypto.subtle.verify('HMAC', await hmacKey(env), b64urlDecode(m[2]), utf8(m[1]));
+  if (!ok) return null;
+  const s = JSON.parse(new TextDecoder().decode(b64urlDecode(m[1])));
+  return s.exp > Date.now() && s.sub ? s : null;
+}
+
+async function meData(req, env, cors) {
+  const s = await readSession(req, env);
+  if (!s) return json({ error: 'signed out' }, 401, cors);
+  const stub = env.BACKUP.get(env.BACKUP.idFromName('google:' + s.sub));
+  if (req.method === 'GET') {
+    const res = await stub.fetch('https://do/get');
+    return new Response(res.body, { status: res.status, headers: Object.assign({ 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, cors) });
+  }
+  if (req.method !== 'PUT') return json({ error: 'method not allowed' }, 405, cors);
+  const text = await req.text();
+  if (text.length > MAX_BACKUP_BYTES) return json({ error: 'data too large' }, 413, cors);
+  let d;
+  try { d = JSON.parse(text); } catch (e) { return json({ error: 'bad json' }, 400, cors); }
+  if (d.v !== 2 || typeof d.t !== 'number' || !d.data || typeof d.data !== 'object') return json({ error: 'bad data' }, 400, cors);
   await stub.fetch('https://do/put', { method: 'POST', body: text });
   return json({ ok: true }, 200, cors);
 }
@@ -173,7 +269,7 @@ function validateSchedule(d, env) {
 function corsHeaders(req, env) {
   const origin = req.headers.get('Origin') || '';
   const allowed = (env.ALLOWED_ORIGIN || '').split(',').map((o) => new URL(o.trim()).origin);
-  const h = { 'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Vary': 'Origin' };
+  const h = { 'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Vary': 'Origin' };
   if (allowed.includes(origin)) h['Access-Control-Allow-Origin'] = origin;
   return h;
 }

@@ -68,6 +68,7 @@ const env = {
 
 // ---------- end-to-end against wrangler dev ----------
 const BASE = 'http://127.0.0.1:8787';
+const rsa = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const ORIGIN = 'https://original2412.github.io';
 const up = await fetch(BASE, { method: 'OPTIONS' }).then(() => true, () => false);
 if (!up) {
@@ -75,6 +76,12 @@ if (!up) {
 } else {
   const received = [];
   const mock = http.createServer((req, res) => {
+    if (req.url === '/certs') {
+      const jwk = rsa.publicKey.export({ format: 'jwk' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ keys: [Object.assign(jwk, { kid: 'k1', alg: 'RS256', use: 'sig' })] }));
+      return;
+    }
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => { received.push({ at: Date.now(), path: req.url, headers: req.headers, body: Buffer.concat(chunks) }); res.writeHead(201); res.end(); });
@@ -117,6 +124,39 @@ if (!up) {
   check('backup: oversize rejected', (await put(bid, JSON.stringify(Object.assign(box(3), { data: 'x'.repeat(1900 * 1024) })))).status === 413);
   const g2 = await get(bid);
   check('backup: rejected writes left it intact', (await g2.json()).data === 'ciphertext-2');
+
+  // ---- Google sign-in (a fake Google: our own RSA key served as JWKS by the mock) ----
+  const CLIENT = vars.GOOGLE_CLIENT_ID;
+  const signIdToken = (claims, key = rsa.privateKey, kid = 'k1') => {
+    const h = Buffer.from(JSON.stringify({ alg: 'RS256', kid, typ: 'JWT' })).toString('base64url');
+    const c = Buffer.from(JSON.stringify(claims)).toString('base64url');
+    const s = crypto.sign('sha256', Buffer.from(h + '.' + c), key).toString('base64url');
+    return h + '.' + c + '.' + s;
+  };
+  const claims = (o) => Object.assign({ iss: 'https://accounts.google.com', aud: CLIENT, sub: 'user-a', email: 'a@example.com', name: 'A', nonce: 'n1', exp: Math.floor(Date.now() / 1000) + 600 }, o);
+  const callback = async (idToken, state) => {
+    const r = await fetch(BASE + '/auth/callback', { method: 'POST', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ id_token: idToken, state }) });
+    return { status: r.status, loc: r.headers.get('location') || '' };
+  };
+  const okA = await callback(signIdToken(claims()), 'n1');
+  const tokenA = (okA.loc.match(/#\/signin\/(.+)$/) || [])[1];
+  check('signin: valid token → redirect to app with session', okA.status === 302 && !!tokenA && okA.loc.startsWith(vars.APP_URL), okA.loc.slice(0, 60));
+  check('signin: wrong nonce rejected', /signin-error\/nonce/.test((await callback(signIdToken(claims()), 'other')).loc));
+  check('signin: wrong client rejected', /signin-error\/wrong/.test((await callback(signIdToken(claims({ aud: 'someone-else' })), 'n1')).loc));
+  check('signin: expired rejected', /signin-error\/expired/.test((await callback(signIdToken(claims({ exp: 1000 })), 'n1')).loc));
+  const evil = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  check('signin: forged signature rejected', /signin-error\/bad%20signature/.test((await callback(signIdToken(claims(), evil.privateKey), 'n1')).loc));
+
+  const me = (method, token, body) => fetch(BASE + '/me/data', { method, headers: Object.assign({ Origin: ORIGIN, 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {}), body: body && JSON.stringify(body) });
+  check('me: no session → 401', (await me('GET')).status === 401);
+  check('me: tampered session → 401', (await me('GET', tokenA.slice(0, -2) + 'xx')).status === 401);
+  check('me: nothing yet → 404', (await me('GET', tokenA)).status === 404);
+  check('me: put', (await me('PUT', tokenA, { v: 2, t: 1, data: { workouts: [{ id: 'w1' }] } })).status === 200);
+  const got = await me('GET', tokenA);
+  check('me: get back own data', got.status === 200 && (await got.json()).data.workouts[0].id === 'w1');
+  const tokenB = ((await callback(signIdToken(claims({ sub: 'user-b', nonce: 'n2' })), 'n2')).loc.match(/#\/signin\/(.+)$/) || [])[1];
+  check('me: another user sees none of it', (await me('GET', tokenB)).status === 404);
+  check('me: bad shape rejected', (await me('PUT', tokenA, { hello: 1 })).status === 400);
 
   await new Promise((r) => setTimeout(r, 6000));
   mock.close();

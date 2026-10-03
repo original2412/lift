@@ -91,6 +91,30 @@
 
   function url(id) { return Backup.url + '/backup/' + id; }
 
+  // ---- Google sign-in mode ----
+  // Public OAuth client id (Google Cloud → Credentials). Empty = Google
+  // sign-in not offered.
+  const GOOGLE_CLIENT_ID = '';
+
+  function sessionInfo(token) {
+    try {
+      const body = token.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+      return JSON.parse(decodeURIComponent(escape(atob(body + '==='.slice((body.length + 3) % 4)))));
+    } catch (e) { return null; }
+  }
+
+  function me(method, body) {
+    return fetch(Backup.url + '/me/data', {
+      method: method,
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.google.token },
+      body: body
+    }).then(function (res) {
+      if (res.status === 401) { state.google = null; save(); throw new Error('signed out — sign in again'); }
+      return res;
+    });
+  }
+
   // The data that matters (no timestamps that change on every export).
   function snapshot() {
     const all = DB.exportAll();
@@ -103,7 +127,66 @@
     url: App.SERVER_URL || '',
 
     available: function () { return !!Backup.url && !!(window.crypto && crypto.subtle); },
-    isOn: function () { return !!state.code; },
+    isOn: function () { return !!state.code || !!state.google; },
+    googleAvailable: function () { return Backup.available() && !!Backup.googleClientId; },
+    googleClientId: GOOGLE_CLIENT_ID,
+    account: function () { return state.google ? { email: state.google.email, name: state.google.name } : null; },
+
+    // Leave for Google's account picker; the server sends us back to
+    // #/signin/<session> (or #/signin-error/<why>).
+    signIn: function () { location.href = Backup.signInUrl(); },
+
+    signInUrl: function () {
+      const nonce = Array.prototype.map.call(crypto.getRandomValues(new Uint8Array(16)), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+      const q = {
+        client_id: Backup.googleClientId,
+        redirect_uri: Backup.url + '/auth/callback',
+        response_type: 'id_token',
+        response_mode: 'form_post',
+        scope: 'openid email profile',
+        nonce: nonce,
+        state: nonce,
+        prompt: 'select_account'
+      };
+      return 'https://accounts.google.com/o/oauth2/v2/auth?' + Object.keys(q).map(function (k) {
+        return k + '=' + encodeURIComponent(q[k]);
+      }).join('&');
+    },
+
+    // Store the session from the redirect. Google replaces a recovery code.
+    acceptSession: function (token) {
+      const info = sessionInfo(token);
+      if (!info || !info.sub) return false;
+      state.google = { token: token, email: info.email || '', name: info.name || '' };
+      state.code = null;
+      state.lastHash = null;
+      state.lastError = null;
+      save();
+      return true;
+    },
+
+    signOut: function () {
+      state.google = null; state.lastHash = null; state.lastAt = 0; state.lastError = null;
+      save();
+    },
+
+    // { obj, t } of what's in this account's cloud copy, or null.
+    fetchCloud: function () {
+      return me('GET').then(function (res) {
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error('server ' + res.status);
+        return res.json().then(function (d) { return { obj: { data: d.data }, t: d.t }; });
+      });
+    },
+
+    // Bring a cloud copy into this phone: 'replace' or 'merge' (union by id).
+    adopt: function (cloud, mode) {
+      DB.importAll(cloud.obj, mode);
+      state.lastHash = null;
+      save();
+      S.emit();
+      return Backup.now();
+    },
     code: function () { return state.code ? format(state.code) : null; },
     lastAt: function () { return state.lastAt || 0; },
     lastError: function () { return state.lastError || null; },
@@ -123,7 +206,7 @@
 
     // Upload if anything changed since the last successful backup.
     now: function () {
-      if (!state.code || !Backup.available()) return Promise.resolve(false);
+      if (!Backup.isOn() || !Backup.available()) return Promise.resolve(false);
       if (running) { again = true; return Promise.resolve(false); }
       running = true;
       const plain = snapshot();
@@ -131,11 +214,15 @@
       return crypto.subtle.digest('SHA-256', enc.encode(plain)).then(function (h) {
         hash = hex(h);
         if (hash === state.lastHash) return false;
-        return derive(state.code).then(function (k) {
-          return encrypt(k.key, enc.encode(plain)).then(function (box) {
-            return fetch(url(k.id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(box) });
+        const upload = state.google
+          // signed in: stored per Google account (not end-to-end encrypted)
+          ? me('PUT', JSON.stringify({ v: 2, t: Date.now(), data: JSON.parse(plain).data }))
+          : derive(state.code).then(function (k) {
+            return encrypt(k.key, enc.encode(plain)).then(function (box) {
+              return fetch(url(k.id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(box) });
+            });
           });
-        }).then(function (res) {
+        return upload.then(function (res) {
           if (!res.ok) throw new Error('server ' + res.status);
           state.lastHash = hash; state.lastAt = Date.now(); state.lastError = null;
           save();
@@ -153,7 +240,7 @@
     },
 
     schedule: function () {
-      if (!state.code) return;
+      if (!Backup.isOn()) return;
       clearTimeout(timer);
       timer = setTimeout(Backup.now, 4000);
     },
@@ -195,7 +282,7 @@
   // backgrounded (iOS may not give us another chance).
   S.subscribe(function () { Backup.schedule(); });
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden && state.code) { clearTimeout(timer); Backup.now(); }
+    if (document.hidden && Backup.isOn()) { clearTimeout(timer); Backup.now(); }
   });
 
   App.backup = Backup;

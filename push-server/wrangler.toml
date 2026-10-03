@@ -6,6 +6,9 @@ compatibility_date = "2026-09-01"
 ALLOWED_ORIGIN = "https://original2412.github.io"
 VAPID_SUBJECT = "https://original2412.github.io/lift/"
 VAPID_PUBLIC_KEY = "BIcjAsrher16c2uBtNzIKG6B_JPm4J-3zgUbhibipbcvN6EM0cqgteZEB6Gy1THJMyIgihzhpvDX99UXjU5RjOc"
+APP_URL = "https://original2412.github.io/lift/"
+# public OAuth client id from Google Cloud (filled in once created)
+GOOGLE_CLIENT_ID = "__SET_ME__"
 
 [[durable_objects.bindings]]
 name = "REST"

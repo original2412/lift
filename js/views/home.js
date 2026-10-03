@@ -43,12 +43,19 @@
     const B = App.backup;
     if (!B.available() || B.isOn() || B.nudgeDismissed()) return null;
     const fresh = !S.workouts().length;
+    const g = B.googleAvailable();
+    const text = g
+      ? (fresh ? 'Used Lift before? Sign in with Google to get your workouts back.' : 'Sign in with Google so your workouts are saved even if this phone isn’t.')
+      : (fresh ? 'Restore your data with your backup code.' : 'Turn on encrypted cloud backup so nothing is lost if this phone is.');
     return el('div.card.tight.nudge', null, [
       el('div.grow', null, [
         el('strong', { text: fresh ? 'New phone?' : 'Protect your workouts' }),
-        el('div.muted.tiny', { text: fresh ? 'Restore your data with your backup code.' : 'Turn on encrypted cloud backup so nothing is lost if this phone is.' })
+        el('div.muted.tiny', { text: text })
       ]),
-      el('button.btn.sm.primary', { text: fresh ? 'Restore' : 'Turn on', onclick: fresh ? App.backupUI.restore : App.backupUI.enable }),
+      el('button.btn.sm.primary', {
+        text: g ? 'Sign in' : (fresh ? 'Restore' : 'Turn on'),
+        onclick: g ? App.backup.signIn : (fresh ? App.backupUI.restore : App.backupUI.enable)
+      }),
       el('button.icon-btn', { html: svg(ICON.x), 'aria-label': 'Dismiss', onclick: function () { B.dismissNudge(); App.store.emit(); } })
     ]);
   }
