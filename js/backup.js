@@ -94,7 +94,7 @@
   // ---- Google sign-in mode ----
   // Public OAuth client id (Google Cloud → Credentials). Empty = Google
   // sign-in not offered.
-  const GOOGLE_CLIENT_ID = '';
+  const GOOGLE_CLIENT_ID = '373958648789-21fbqeuqnsnkd5f62a7mgknun8f0dp2j.apps.googleusercontent.com';
 
   function sessionInfo(token) {
     try {
