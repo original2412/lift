@@ -13,6 +13,7 @@ const ASSETS = [
   './js/charts.js',
   './js/push.js',
   './js/coach.js',
+  './js/backup.js',
   './js/views/home.js',
   './js/views/routine-edit.js',
   './js/views/workout.js',

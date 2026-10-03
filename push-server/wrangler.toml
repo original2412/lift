@@ -15,3 +15,11 @@ class_name = "RestAlarm"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RestAlarm"]
+
+[[durable_objects.bindings]]
+name = "BACKUP"
+class_name = "Backup"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Backup"]

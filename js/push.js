@@ -10,6 +10,7 @@
     vapidPublicKey: 'BIcjAsrher16c2uBtNzIKG6B_JPm4J-3zgUbhibipbcvN6EM0cqgteZEB6Gy1THJMyIgihzhpvDX99UXjU5RjOc'
   };
   const LS_KEY = 'lift.v1.push';
+  App.SERVER_URL = CFG.url; // also serves encrypted backups (js/backup.js)
 
   function load() { try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch (e) { return {}; } }
   function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {} }

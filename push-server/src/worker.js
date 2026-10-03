@@ -8,11 +8,18 @@
 // Routes (JSON, CORS-restricted to ALLOWED_ORIGIN):
 //   POST /schedule { id, subscription, endsAt, title, body, url }
 //   POST /cancel   { id }
+//   GET  /backup/<id>          → latest encrypted backup (404 if none)
+//   PUT  /backup/<id> <json>   → store a new one (previous kept as a fallback)
+//
+// Backups are encrypted on the phone with a key derived from the user's
+// recovery code; <id> is a hash of that code. This server only ever sees
+// ciphertext and can't link a backup to a person.
 //
 // Secrets: VAPID_PRIVATE_JWK (JSON JWK, P-256). Vars: VAPID_PUBLIC_KEY
 // (base64url raw), VAPID_SUBJECT, ALLOWED_ORIGIN.
 
 const MAX_AHEAD_MS = 15 * 60 * 1000;
+const MAX_BACKUP_BYTES = 1800 * 1024; // under the 2 MB Durable Object value limit
 // Only relay to real push services, so this can't be used to POST elsewhere.
 const PUSH_HOSTS = [
   /^web\.push\.apple\.com$/,
@@ -25,10 +32,13 @@ export default {
   async fetch(req, env) {
     const cors = corsHeaders(req, env);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
-    if (req.method !== 'POST') return json({ error: 'not found' }, 404, cors);
     if (!cors['Access-Control-Allow-Origin']) return json({ error: 'origin not allowed' }, 403, cors);
 
     const path = new URL(req.url).pathname;
+    const bm = path.match(/^\/backup\/([a-f0-9]{64})$/);
+    if (bm) return backupRoute(req, env, bm[1], cors);
+    if (req.method !== 'POST') return json({ error: 'not found' }, 404, cors);
+
     let d;
     try { d = await req.json(); } catch (e) { return json({ error: 'bad json' }, 400, cors); }
     if (typeof d.id !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(d.id)) return json({ error: 'bad id' }, 400, cors);
@@ -55,6 +65,46 @@ export default {
     return json({ ok: true }, 200, cors);
   }
 };
+
+async function backupRoute(req, env, id, cors) {
+  const stub = env.BACKUP.get(env.BACKUP.idFromName(id));
+  if (req.method === 'GET') {
+    const res = await stub.fetch('https://do/get');
+    return new Response(res.body, { status: res.status, headers: Object.assign({ 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, cors) });
+  }
+  if (req.method !== 'PUT') return json({ error: 'method not allowed' }, 405, cors);
+  const text = await req.text();
+  if (text.length > MAX_BACKUP_BYTES) return json({ error: 'backup too large' }, 413, cors);
+  let d;
+  try { d = JSON.parse(text); } catch (e) { return json({ error: 'bad json' }, 400, cors); }
+  // shape only — the content is ciphertext we can't (and shouldn't) inspect
+  if (d.v !== 1 || typeof d.iv !== 'string' || typeof d.data !== 'string' || typeof d.t !== 'number') {
+    return json({ error: 'bad backup' }, 400, cors);
+  }
+  await stub.fetch('https://do/put', { method: 'POST', body: text });
+  return json({ ok: true }, 200, cors);
+}
+
+// One per backup id. Keeps the latest backup and the one before it, so a
+// bad upload (say, an empty phone) can still be rolled back.
+export class Backup {
+  constructor(state) { this.state = state; }
+  async fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (path === '/get') {
+      const cur = await this.state.storage.get('cur');
+      return cur ? new Response(cur) : new Response('{"error":"not found"}', { status: 404 });
+    }
+    if (path === '/put') {
+      const text = await req.text();
+      const cur = await this.state.storage.get('cur');
+      if (cur) await this.state.storage.put('prev', cur);
+      await this.state.storage.put('cur', text);
+      return new Response('ok');
+    }
+    return new Response('not found', { status: 404 });
+  }
+}
 
 export class RestAlarm {
   constructor(state, env) {
@@ -123,7 +173,7 @@ function validateSchedule(d, env) {
 function corsHeaders(req, env) {
   const origin = req.headers.get('Origin') || '';
   const allowed = (env.ALLOWED_ORIGIN || '').split(',').map((o) => new URL(o.trim()).origin);
-  const h = { 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Vary': 'Origin' };
+  const h = { 'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Vary': 'Origin' };
   if (allowed.includes(origin)) h['Access-Control-Allow-Origin'] = origin;
   return h;
 }

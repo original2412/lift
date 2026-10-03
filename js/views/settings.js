@@ -116,6 +116,9 @@
       v.appendChild(card);
 
       // --- Data ---
+      v.appendChild(el('div.section-label', { text: 'Cloud backup' }));
+      v.appendChild(backupCard());
+
       v.appendChild(el('div.section-label', { text: 'Your data' }));
       const dcard = el('div.card', { style: { padding: '4px 14px' } });
 
@@ -224,6 +227,118 @@
       S.emit();
       UI.toast('All data erased');
       App.router.go('/', true);
+    });
+  }
+
+  // ---------- cloud backup ----------
+  function backupCard() {
+    const B = App.backup;
+    const card = el('div.card', { style: { padding: '4px 14px' } });
+    if (!B.available()) {
+      card.appendChild(el('div.list-item', null, [el('div.grow', null, [el('div.meta', { text: 'Cloud backup isn’t available here.' })])]));
+      return card;
+    }
+    if (!B.isOn()) {
+      card.appendChild(el('div.list-item', null, [
+        el('div.grow', null, [
+          el('div.name', { text: 'Off' }),
+          el('div.meta', { text: 'Back up automatically after every change, encrypted with a recovery code only you have.' })
+        ]),
+        el('button.pill', { text: 'Turn on', onclick: App.backupUI.enable })
+      ]));
+    } else {
+      const err = B.lastError();
+      card.appendChild(el('div.list-item', null, [
+        el('div.grow', null, [
+          el('div.name', { text: 'On' }),
+          el('div.meta', { text: err
+            ? 'Last try failed (' + err + ') — retries automatically when you’re online'
+            : (B.lastAt() ? 'Last backup ' + U.relDay(B.lastAt()).toLowerCase() + ' at ' + U.fmtTime(B.lastAt()) : 'Waiting for first backup…') })
+        ]),
+        el('button.pill', { text: 'Back up now', onclick: function () {
+          B.now().then(function (ok) {
+            UI.toast(ok ? 'Backed up' : (B.lastError() ? 'Backup failed: ' + B.lastError() : 'Already up to date'));
+            App.store.emit();
+          });
+        } })
+      ]));
+      card.appendChild(el('button.list-item', { style: { width: '100%', textAlign: 'left' }, onclick: function () { App.backupUI.showCode(B.code(), false); } }, [
+        el('div.grow', null, [el('div.name', { text: 'Show recovery code' }), el('div.meta', { text: 'You need it to restore on a new phone' })])
+      ]));
+    }
+    card.appendChild(el('button.list-item', { style: { width: '100%', textAlign: 'left' }, onclick: App.backupUI.restore }, [
+      el('div.grow', null, [el('div.name', { text: 'Restore from a code' }), el('div.meta', { text: 'Bring back your data on this phone' })])
+    ]));
+    return card;
+  }
+
+  App.backupUI = {
+    enable: function () {
+      UI.toast('Creating your backup…');
+      App.backup.enable().then(function (code) {
+        App.backupUI.showCode(code, true);
+        App.store.emit();
+      });
+    },
+
+    showCode: function (code, isNew) {
+      let ref;
+      ref = UI.sheet({
+        title: isNew ? 'Save your recovery code' : 'Your recovery code',
+        body: el('div', null, [
+          el('div.code-box', { text: code }),
+          el('p.muted.tiny', { style: { margin: '10px 2px 0', lineHeight: '1.5' }, text:
+            'This code is the only way to restore your data on a new phone. Your backup is encrypted with it — nobody else, including the app, can read it or reset it. Save it now: screenshot, Notes, or your password manager.' })
+        ]),
+        footer: el('div', null, [
+          el('button.btn.primary', { text: 'Copy code', onclick: function () {
+            (navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.reject()).then(
+              function () { UI.toast('Copied'); },
+              function () { UI.toast('Long-press the code to copy it'); });
+          } }),
+          el('button.btn.ghost', { text: isNew ? 'I’ve saved it' : 'Done', style: { marginTop: '8px' }, onclick: function () { ref.close(); } })
+        ])
+      });
+    },
+
+    restore: function () {
+      const input = el('input.input', { type: 'text', placeholder: 'LIFT-XXXXX-XXXXX-XXXXX-XXXXX', autocapitalize: 'characters', autocomplete: 'off', spellcheck: false });
+      const status = el('div.tiny', { style: { margin: '8px 2px 0', minHeight: '18px' } });
+      let ref;
+      const go = el('button.btn.primary', { text: 'Find backup', onclick: function () {
+        status.textContent = 'Looking…'; status.style.color = 'var(--text-dim)';
+        App.backup.fetchBackup(input.value).then(function (f) {
+          ref.close();
+          confirmRestore(f);
+        }, function (e) {
+          status.textContent = e.message; status.style.color = 'var(--bad)';
+        });
+      } });
+      ref = UI.sheet({
+        title: 'Restore from a code',
+        body: el('div', null, [input, status]),
+        footer: go
+      });
+      setTimeout(function () { input.focus(); }, 250);
+    }
+  };
+
+  function confirmRestore(f) {
+    const d = f.obj.data || {};
+    const n = function (k) { return (d[k] || []).length; };
+    UI.confirm({
+      title: 'Restore this backup?',
+      message: 'Backup from ' + U.fmtDate(f.t, { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + U.fmtTime(f.t) + ': ' +
+        U.pluralize(n('workouts'), 'workout') + ', ' + U.pluralize(n('routines'), 'routine') +
+        '. It replaces everything on this phone, and this phone will keep backing up to it.',
+      confirmText: 'Restore'
+    }).then(function (ok) {
+      if (!ok) return;
+      App.backup.restore(f).then(function () {
+        App.applyTheme();
+        UI.toast('Restored');
+        App.router.go('/', true);
+      });
     });
   }
 

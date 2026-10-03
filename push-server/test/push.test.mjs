@@ -101,6 +101,23 @@ if (!up) {
   check('endsAt too far rejected', (await post('/schedule', { id: 'testdevice9', subscription: s1.sub, endsAt: Date.now() + 3600e3 })).status === 400);
   check('bad id rejected', (await post('/schedule', { id: 'x', subscription: s1.sub, endsAt })).status === 400);
 
+  // ---- backups ----
+  const bid = crypto.randomBytes(32).toString('hex');
+  const box = (n) => ({ v: 1, gz: true, iv: 'aXY=', data: 'ciphertext-' + n, t: Date.now() + n });
+  const put = (id, body, origin = ORIGIN) => fetch(BASE + '/backup/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: origin }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+  const get = (id, origin = ORIGIN) => fetch(BASE + '/backup/' + id, { headers: { Origin: origin } });
+  check('backup: missing → 404', (await get(bid)).status === 404);
+  check('backup: put #1', (await put(bid, box(1))).status === 200);
+  check('backup: put #2', (await put(bid, box(2))).status === 200);
+  const g = await get(bid);
+  check('backup: get returns latest', g.status === 200 && (await g.json()).data === 'ciphertext-2');
+  check('backup: wrong origin rejected', (await get(bid, 'https://evil.example')).status === 403);
+  check('backup: bad id path → 404', (await get('not-a-hash')).status === 404);
+  check('backup: wrong shape rejected', (await put(bid, { hello: 1 })).status === 400);
+  check('backup: oversize rejected', (await put(bid, JSON.stringify(Object.assign(box(3), { data: 'x'.repeat(1900 * 1024) })))).status === 413);
+  const g2 = await get(bid);
+  check('backup: rejected writes left it intact', (await g2.json()).data === 'ciphertext-2');
+
   await new Promise((r) => setTimeout(r, 6000));
   mock.close();
 

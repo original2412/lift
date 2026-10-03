@@ -38,6 +38,21 @@
     ]);
   }
 
+  // Until backup is on: offer it (or a restore, on a phone with no history).
+  function backupNudge() {
+    const B = App.backup;
+    if (!B.available() || B.isOn() || B.nudgeDismissed()) return null;
+    const fresh = !S.workouts().length;
+    return el('div.card.tight.nudge', null, [
+      el('div.grow', null, [
+        el('strong', { text: fresh ? 'New phone?' : 'Protect your workouts' }),
+        el('div.muted.tiny', { text: fresh ? 'Restore your data with your backup code.' : 'Turn on encrypted cloud backup so nothing is lost if this phone is.' })
+      ]),
+      el('button.btn.sm.primary', { text: fresh ? 'Restore' : 'Turn on', onclick: fresh ? App.backupUI.restore : App.backupUI.enable }),
+      el('button.icon-btn', { html: svg(ICON.x), 'aria-label': 'Dismiss', onclick: function () { B.dismissNudge(); App.store.emit(); } })
+    ]);
+  }
+
   function weekCard() {
     const cur = S.weeklyMuscleSets(U.weekStart(Date.now()));
     // how far below its own minimum each muscle is, most-behind first
@@ -102,6 +117,8 @@
 
       const deload = App.deloadCard(true);
       if (deload) v.appendChild(deload);
+      const nudge = backupNudge();
+      if (nudge) v.appendChild(nudge);
       v.appendChild(App.coachCard());
       if (S.workouts().length) v.appendChild(weekCard());
 
