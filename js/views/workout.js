@@ -50,7 +50,7 @@
   // repeat the last one.
   function applyTarget(item, exceptWorkoutId) {
     const plan = S.progressionPlan(item.exerciseId, item.repMin, item.repMax, exceptWorkoutId);
-    if (!plan) return;
+    if (!plan) { autoWarmups(item); return; }
     const pos = {};
     item.sets.forEach(function (s) {
       const g = S.setGroup(s.type);
@@ -62,6 +62,35 @@
       s.weight = t.weight;
       s.reps = t.reps;
     });
+    autoWarmups(item);
+  }
+
+  // Warm-ups ramp up to today's first working weight instead of repeating
+  // last time's numbers: few reps, rising load, so they prime without
+  // tiring (the working sets are what grow muscle).
+  const RAMP = {
+    1: [[0.6, 6]],
+    2: [[0.5, 8], [0.75, 4]],
+    3: [[0.45, 8], [0.65, 5], [0.85, 3]],
+    4: [[0.4, 8], [0.55, 6], [0.7, 4], [0.85, 2]]
+  };
+  function warmupCount(kg) { return kg >= 60 ? 3 : kg >= 25 ? 2 : 1; }
+  function autoWarmups(item) {
+    const work = item.sets.filter(function (s) { return S.setGroup(s.type) === 'work' && Number(s.weight) > 0; })[0];
+    if (!work) return false;
+    const W = Number(work.weight);
+    const warm = item.sets.filter(function (s) { return s.type === 'warmup'; });
+    const ramp = RAMP[Math.min(warm.length, 4)];
+    if (!ramp) return false;
+    const step = W % 2.5 === 0 ? 2.5 : W % 2 === 0 ? 2 : 1;
+    const ex = S.exercise(item.exerciseId);
+    const floor = ex && ex.equipment === 'Barbell' ? 20 : step;
+    warm.forEach(function (s, i) {
+      if (s.done || !ramp[i]) return;
+      s.weight = Math.min(W, Math.max(floor, Math.round(W * ramp[i][0] / step) * step));
+      s.reps = ramp[i][1];
+    });
+    return true;
   }
 
   function newItem(exId, fields) {
@@ -90,6 +119,7 @@
 
   function itemFromRoutine(rit) {
     return newItem(rit.exerciseId, {
+      superset: rit.superset || undefined,
       notes: rit.notes || '',
       restSec: rit.restSec != null ? rit.restSec : S.settings.defaultRestSec,
       repMin: rit.repMin, repMax: rit.repMax,
@@ -128,7 +158,7 @@
       items: w.items.map(function (it) {
         return {
           exerciseId: it.exerciseId, notes: it.notes || '', restSec: it.restSec || 0,
-          repMin: it.repMin, repMax: it.repMax,
+          repMin: it.repMin, repMax: it.repMax, superset: it.superset || undefined,
           sets: it.sets.map(function (s) { return Object.assign({}, s, { done: true }); })
         };
       })
@@ -410,15 +440,48 @@
       renderRestBar();
     }
 
+    // In a superset, after a set on one exercise go to the next one in the
+    // group that is behind on this round; null = the round is done (rest).
+    function supersetNext(it) {
+      if (!it.superset) return null;
+      const m = App.ss.members(a.items, it);
+      const doneN = function (x) { return x.sets.filter(function (s) { return s.done; }).length; };
+      const mine = doneN(it);
+      for (let k = m.indexOf(it) + 1; k < m.length; k++) {
+        if (doneN(m[k]) < mine && m[k].sets.some(function (s) { return !s.done; })) return m[k];
+      }
+      return null;
+    }
+    function focusCard(item) {
+      const c = ctx.el.querySelector('.ex-card[data-i="' + a.items.indexOf(item) + '"]');
+      if (!c) return;
+      c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash');
+    }
+    function addWarmups(item) {
+      const work = item.sets.filter(function (s) { return S.setGroup(s.type) === 'work' && Number(s.weight) > 0; })[0];
+      if (!work) { UI.toast('Enter your working weight first'); return; }
+      const n = warmupCount(Number(work.weight));
+      const at = Math.max(0, item.sets.findIndex(function (s) { return !s.done; }));
+      for (let k = 0; k < n; k++) item.sets.splice(at, 0, { type: 'warmup', weight: '', reps: '', done: false });
+      autoWarmups(item);
+      persist(); render();
+      UI.toast(U.pluralize(n, 'warm-up set') + ' added, ramping to ' + U.fmtNum(App.fmtW(work.weight)) + ' ' + App.unit());
+    }
+
     // ---- exercise card ----
     function exerciseCard(it, idx) {
       const ex = S.exercise(it.exerciseId);
-      const card = el('div.ex-card');
+      const card = App.ss.decorate(el('div.ex-card', { 'data-i': idx }), a.items, it);
       const last = S.lastPerformance(it.exerciseId, a.id);
+      if (it.sets.length && it.sets.every(function (s) { return s.done; })) card.classList.add('complete');
 
       card.appendChild(el('div.ex-head', null, [
-        el('a', { href: ex ? '#/exercise/' + ex.id : '#/workout' }, UI.exerciseThumb(ex, 34)),
-        el('a.ex-name', { text: ex ? ex.name : 'Removed exercise', href: ex ? '#/exercise/' + ex.id : '#/workout' }),
+        el('a', { href: ex ? '#/exercise/' + ex.id : '#/workout' }, UI.exerciseThumb(ex, 38)),
+        el('div.ex-name-wrap', null, [
+          App.ss.badge(a.items, it),
+          el('a.ex-name', { text: ex ? ex.name : 'Removed exercise', href: ex ? '#/exercise/' + ex.id : '#/workout' })
+        ]),
         el('button.rest-link', {
           html: svg(ICON.timer, ' style="width:13px;height:13px;vertical-align:-2px"') + ' ' + (it.restSec ? U.fmtClock(it.restSec) : 'Off'),
           'aria-label': 'Change rest timer',
@@ -472,15 +535,23 @@
       card.appendChild(table);
       renderSetRows();
 
-      card.appendChild(el('button.add-set-btn', {
-        html: svg(ICON.plus, ' style="width:14px;height:14px;vertical-align:-2px"') + ' Add set',
-        onclick: function () {
-          const p = it.sets[it.sets.length - 1];
-          it.sets.push({ type: 'normal', weight: p ? p.weight : '', reps: p ? p.reps : '', done: false });
-          persist();
-          renderSetRows();
-        }
-      }));
+      const hasWarm = it.sets.some(function (s) { return s.type === 'warmup'; });
+      card.appendChild(el('div.add-row', null, [
+        el('button.add-set-btn', {
+          html: svg(ICON.plus, ' style="width:14px;height:14px;vertical-align:-2px"') + ' Add set',
+          onclick: function () {
+            const p = it.sets[it.sets.length - 1];
+            it.sets.push({ type: 'normal', weight: p ? p.weight : '', reps: p ? p.reps : '', done: false });
+            persist();
+            renderSetRows();
+            card.classList.remove('complete');
+          }
+        }),
+        !hasWarm && !(ex && ex.tracking === 'cardio') ? el('button.add-set-btn.warm', {
+          html: svg(ICON.flame2, ' style="width:14px;height:14px;vertical-align:-2px"') + ' Warm-up',
+          onclick: function () { addWarmups(it); }
+        }) : null
+      ]));
 
       return card;
 
@@ -606,12 +677,22 @@
             it._effortIdx = si;
             if (it._failCheck === true && si === lastWorkingIdx()) finishFailureCheck(si);
           }
-          if (it.restSec) startRest(it.restSec);
+          const next = supersetNext(it);
+          if (next) {
+            // superset: straight to the partner exercise, rest after the round
+            if (a.rest) stopRest();
+            UI.toast('Next: ' + S.exerciseName(next.exerciseId));
+            setTimeout(function () { focusCard(next); }, 60);
+          } else if (it.restSec) {
+            // warm-ups only need a short breather
+            startRest(st.type === 'warmup' ? Math.min(it.restSec, 60) : it.restSec);
+          }
         } else if (it._effortIdx === si) {
           it._effortIdx = null;
         }
         persist();
         renderSetRows();
+        card.classList.toggle('complete', it.sets.every(function (s) { return s.done; }));
       }
 
       function finishFailureCheck(si) {
@@ -687,16 +768,19 @@
           } },
           { label: 'Rest timer: ' + (item.restSec ? U.fmtClock(item.restSec) : 'off'), icon: ICON.timer, onClick: function () { pickRest(item); } },
           i > 0 ? { label: 'Move up', icon: ICON.chevronL, onClick: function () { move(i, i - 1); } } : null,
-          i < a.items.length - 1 ? { label: 'Move down', icon: ICON.chevronR, onClick: function () { move(i, i + 1); } } : null,
+          i < a.items.length - 1 ? { label: 'Move down', icon: ICON.chevronR, onClick: function () { move(i, i + 1); } } : null
+        ].concat(App.ss.menuItems(a.items, item, function () { persist(); render(); }), [
+          item.sets.some(function (s) { return s.type === 'warmup'; }) ? null
+            : { label: 'Add warm-up sets', icon: ICON.flame2, onClick: function () { addWarmups(item); } },
           { label: 'Replace exercise', icon: ICON.swap, onClick: function () {
             App.exercisePicker({ onDone: function (ids) { if (ids[0]) { item.exerciseId = ids[0]; persist(); render(); } } });
           } },
           { label: 'Remove exercise', icon: ICON.trash, danger: true, onClick: function () {
-            a.items.splice(i, 1); persist(); render();
+            a.items.splice(i, 1); App.ss.tidy(a.items); persist(); render();
           } }
-        ]);
+        ]));
       }
-      function move(x, y) { const t = a.items[x]; a.items[x] = a.items[y]; a.items[y] = t; persist(); render(); }
+      function move(x, y) { const t = a.items[x]; a.items[x] = a.items[y]; a.items[y] = t; App.ss.tidy(a.items); persist(); render(); }
     }
 
     // ---- finish ----
@@ -761,6 +845,7 @@
               notes: it.notes || '',
               restSec: it.restSec || 0,
               repMin: it.repMin, repMax: it.repMax,
+              superset: it.superset || undefined,
               sets: it.sets
                 .filter(function (s) { return s.done; })
                 .map(function (s) {
@@ -806,17 +891,37 @@
     const v = UI.clear(ctx.el);
     if (!w) { R.go('/', true); return; }
 
+    const nth = S.workouts().filter(function (x) { return x.startedAt <= w.startedAt; }).length;
+    const prCount = (w.prs || []).length;
     v.appendChild(el('div.summary-hero', null, [
-      el('div', { html: svg(ICON.trophy, ' style="width:34px;height:34px;color:var(--pr)"') }),
+      el('div.badge-ring', { html: svg(prCount ? ICON.trophy : ICON.check) }),
+      el('div.kicker', { text: 'Workout #' + nth + (prCount ? ' · ' + U.pluralize(prCount, 'record') : '') }),
       el('div.big', { text: w.name }),
       el('div.muted.tiny', { text: U.fmtDate(w.startedAt, { weekday: 'long', month: 'short', day: 'numeric' }) + ' · ' + U.fmtTime(w.startedAt) })
     ]));
+    // celebrate only right after finishing, not when revisiting
+    if (Date.now() - (w.endedAt || 0) < 60000 && !ctx.params._seen) confetti(prCount ? 160 : 80);
 
     v.appendChild(el('div.stat-grid', { style: { marginTop: '10px' } }, [
       box(U.fmtDuration(w.durationSec), 'Duration'),
       box(compact(App.fmtW(S.workoutVolume(w))) + ' ' + App.unit(), 'Volume'),
       box(String(S.workoutSetCount(w)), 'Sets')
     ]));
+
+    // weekly goal progress
+    if (App.weeklyGoal) {
+      const ws = U.weekStart(w.startedAt);
+      const n = S.workouts().filter(function (x) { return x.startedAt >= ws && x.startedAt < ws + 7 * 86400000; }).length;
+      const goal = App.weeklyGoal();
+      const streak = App.weekStreak();
+      const txt = n >= goal
+        ? (n === goal ? 'Weekly goal hit — ' : n + ' this week, goal smashed — ') + (streak > 1 ? U.pluralize(streak, 'week') + ' streak!' : 'streak started!')
+        : n + ' of ' + goal + ' this week — ' + U.pluralize(goal - n, 'more workout') + ' to hit your goal';
+      v.appendChild(el('div.card.tight.goal-note', { style: { marginTop: '12px' } }, [
+        el('span', { html: svg(ICON.flame) }),
+        el('div.tiny', { text: txt, style: { fontWeight: '650', fontSize: '13.5px' } })
+      ]));
+    }
 
     if (w.prs && w.prs.length) {
       v.appendChild(el('div.section-label', { text: w.prs.length + ' new record' + (w.prs.length > 1 ? 's' : '') }));
@@ -850,6 +955,41 @@
   }, { tab: 'home', fullscreen: true });
 
   // ---------------- helpers ----------------
+  // A short burst of confetti (canvas, ~2.5s, removes itself).
+  function confetti(n) {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const c = document.createElement('canvas');
+    c.className = 'confetti';
+    const dpr = window.devicePixelRatio || 1;
+    c.width = innerWidth * dpr; c.height = innerHeight * dpr;
+    document.body.appendChild(c);
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+    const colors = ['#4f8dff', '#8b5cf6', '#a855f7', '#22c55e', '#fbbf24', '#ff8a3d', '#f472b6'];
+    const ps = [];
+    for (let i = 0; i < n; i++) {
+      ps.push({
+        x: innerWidth / 2 + (Math.random() - 0.5) * 80, y: innerHeight * 0.32,
+        vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 13 - 4,
+        r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.4,
+        w: 6 + Math.random() * 6, h: 3 + Math.random() * 4, c: colors[i % colors.length]
+      });
+    }
+    const t0 = performance.now();
+    (function frame(t) {
+      const age = t - t0;
+      g.clearRect(0, 0, innerWidth, innerHeight);
+      g.globalAlpha = Math.max(0, 1 - Math.max(0, age - 1600) / 900);
+      ps.forEach(function (p) {
+        p.vy += 0.35; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+        g.save(); g.translate(p.x, p.y); g.rotate(p.r); g.fillStyle = p.c;
+        g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); g.restore();
+      });
+      if (age < 2500) requestAnimationFrame(frame); else c.remove();
+    })(t0);
+    UI.buzz([30, 40, 30]);
+  }
+
   function workingNum(it, si) {
     let n = 0;
     for (let i = 0; i <= si; i++) if (it.sets[i].type !== 'warmup') n++;
@@ -958,6 +1098,8 @@
     const keptR = rIds.filter(function (id) { return wIds.indexOf(id) >= 0; });
     const keptW = wIds.filter(function (id) { return rIds.indexOf(id) >= 0; });
     if (keptR.join() !== keptW.join()) out.push('Changed exercise order');
+    const sr = App.ss.signature(r.items), sw = App.ss.signature(items);
+    if (keptW.some(function (id) { return (sr[id] || '') !== (sw[id] || ''); })) out.push('Changed supersets');
     items.forEach(function (it) {
       const ri = findItem(r.items, it.exerciseId);
       if (!ri) return;
@@ -984,6 +1126,7 @@
         restSec: it.restSec || 0,
         repMin: it.repMin,
         repMax: it.repMax,
+        superset: it.superset || undefined,
         notes: ri ? (ri.notes || '') : '',
         sets: it.sets.map(function (s) {
           return {

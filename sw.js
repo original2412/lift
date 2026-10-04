@@ -1,5 +1,5 @@
 /* Lift service worker — offline-first app shell */
-const CACHE = 'lift-v4';
+const CACHE = 'lift-v5';
 const ASSETS = [
   './',
   './index.html',

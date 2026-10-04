@@ -210,6 +210,7 @@
       let it = w._byEx[ik];
       if (!it) {
         it = w._byEx[ik] = { exerciseId: ex.id, notes: get(r, 'exercise_notes'), restSec: 0, sets: [] };
+        if (get(r, 'superset_id')) it.superset = 'hevy' + get(r, 'superset_id');
         w.items.push(it);
       }
       const type = SET_TYPE[get(r, 'set_type')] || 'normal';

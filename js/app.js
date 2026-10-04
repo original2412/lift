@@ -16,14 +16,16 @@
     const t = S.settings.theme === 'light' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', t);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', t === 'light' ? '#f4f5f7' : '#0f1115');
+    if (meta) meta.setAttribute('content', t === 'light' ? '#f4f5f7' : '#0a0c10');
   };
 
   // ---- resume bar (shown above tab bar when a workout is active) ----
   let resumeBar;
   App.updateResumeBar = function () {
     const active = DB.state.active;
-    const onWorkoutScreen = (location.hash || '').indexOf('/workout') === 1;
+    const h = location.hash || '';
+    // the workout screen and Home (its hero card) already show it
+    const onWorkoutScreen = h.indexOf('/workout') === 1 || h === '' || h === '#/' || h === '#';
     if (resumeBar) { resumeBar.remove(); resumeBar = null; }
     if (!active || onWorkoutScreen) return;
     resumeBar = UI.el('div.resume-bar', null, [

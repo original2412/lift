@@ -73,11 +73,11 @@
 
     function itemCard(it, idx) {
       const ex = S.exercise(it.exerciseId);
-      const card = el('div.ex-card');
+      const card = App.ss.decorate(el('div.ex-card'), routine.items, it);
 
       card.appendChild(el('div.ex-head', null, [
         UI.exerciseThumb(ex, 34),
-        el('span.ex-name', { text: ex ? ex.name : 'Removed exercise' }),
+        el('div.ex-name-wrap', null, [App.ss.badge(routine.items, it), el('span.ex-name', { text: ex ? ex.name : 'Removed exercise' })]),
         el('button.icon-btn', { html: svg(ICON.dots), 'aria-label': 'Options', onclick: function () { itemMenu(it, idx); } })
       ]));
 
@@ -205,16 +205,18 @@
       UI.menu(S.exerciseName(it.exerciseId), [
         idx > 0 ? { label: 'Move up', icon: ICON.chevronL, onClick: function () { swap(idx, idx - 1); } } : null,
         idx < routine.items.length - 1 ? { label: 'Move down', icon: ICON.chevronR, onClick: function () { swap(idx, idx + 1); } } : null,
+      ].concat(App.ss.menuItems(routine.items, it, function () { dirty = true; renderItems(); }), [
         { label: 'Replace exercise', icon: ICON.swap, onClick: function () {
           App.exercisePicker({ onDone: function (ids) { if (ids[0]) { it.exerciseId = ids[0]; renderItems(); } } });
         } },
         { label: 'Remove from routine', icon: ICON.trash, danger: true, onClick: function () {
-          routine.items.splice(idx, 1); renderItems();
+          routine.items.splice(idx, 1); App.ss.tidy(routine.items); renderItems();
         } }
-      ]);
+      ]));
     }
     function swap(a, b) {
       const t = routine.items[a]; routine.items[a] = routine.items[b]; routine.items[b] = t;
+      App.ss.tidy(routine.items);
       renderItems();
     }
 
@@ -265,6 +267,93 @@
     if (!r) { ctx.el.appendChild(el('div.empty', { text: 'Routine not found' })); return; }
     editorView(ctx, U.deepClone(r));
   }, { tab: 'home', fullscreen: true });
+
+  // ---- supersets (shared with the workout view) ----
+  // Items in a superset share `superset` (an id) and sit next to each other.
+  const SS_COLORS = ['#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#38bdf8'];
+  App.ss = {
+    // Keep each group's members adjacent (at the first member's spot) and
+    // drop groups that are down to one exercise.
+    tidy: function (items) {
+      const count = {};
+      items.forEach(function (it) { if (it.superset) count[it.superset] = (count[it.superset] || 0) + 1; });
+      items.forEach(function (it) { if (it.superset && count[it.superset] < 2) delete it.superset; });
+      const out = [], placed = {};
+      items.forEach(function (it) {
+        if (!it.superset) { out.push(it); return; }
+        if (placed[it.superset]) return;
+        placed[it.superset] = true;
+        items.forEach(function (x) { if (x.superset === it.superset) out.push(x); });
+      });
+      items.length = 0;
+      Array.prototype.push.apply(items, out);
+      return items;
+    },
+    members: function (items, it) {
+      return it.superset ? items.filter(function (x) { return x.superset === it.superset; }) : [it];
+    },
+    // 0-based position of this item's group among the workout's groups
+    index: function (items, it) {
+      const seen = [];
+      items.forEach(function (x) { if (x.superset && seen.indexOf(x.superset) < 0) seen.push(x.superset); });
+      return seen.indexOf(it.superset);
+    },
+    color: function (items, it) { return SS_COLORS[App.ss.index(items, it) % SS_COLORS.length]; },
+    label: function (items, it) { return 'Superset ' + String.fromCharCode(65 + App.ss.index(items, it)); },
+    // Partner exercise ids per exercise, to compare a routine with a workout.
+    signature: function (items) {
+      const out = {};
+      items.forEach(function (it) {
+        out[it.exerciseId] = App.ss.members(items, it).map(function (x) { return x.exerciseId; })
+          .filter(function (id) { return id !== it.exerciseId; }).sort().join(',');
+      });
+      return out;
+    },
+    // Menu entries for an item's ⋮ menu. done() re-renders.
+    menuItems: function (items, it, done) {
+      if (it.superset) {
+        return [{ label: 'Remove from superset', icon: ICON.link, onClick: function () {
+          delete it.superset; App.ss.tidy(items); done();
+        } }];
+      }
+      const others = items.filter(function (x) { return x !== it; });
+      if (!others.length) return [];
+      return [{ label: 'Superset with…', icon: ICON.link, onClick: function () {
+        UI.menu('Superset ' + S.exerciseName(it.exerciseId) + ' with', others.map(function (x) {
+          return { label: S.exerciseName(x.exerciseId) + (x.superset ? ' (' + App.ss.label(items, x) + ')' : ''), onClick: function () {
+            if (!x.superset) {
+              // new pair: the partner moves to right after this exercise
+              x.superset = it.superset = 'ss' + U.uid();
+              items.splice(items.indexOf(x), 1);
+              items.splice(items.indexOf(it) + 1, 0, x);
+            } else {
+              // join the partner's group, at its end
+              it.superset = x.superset;
+              items.splice(items.indexOf(it), 1);
+              let at = items.indexOf(x);
+              while (at + 1 < items.length && items[at + 1].superset === x.superset) at++;
+              items.splice(at + 1, 0, it);
+            }
+            App.ss.tidy(items);
+            done();
+          } };
+        }));
+      } }];
+    },
+    badge: function (items, it) {
+      if (!it.superset) return null;
+      return el('span.ss-badge', { text: App.ss.label(items, it), style: { color: App.ss.color(items, it) } });
+    },
+    decorate: function (card, items, it) {
+      if (!it.superset) return card;
+      const m = App.ss.members(items, it);
+      card.classList.add('ss');
+      if (m[0] !== it) card.classList.add('ss-cont');
+      if (m[m.length - 1] !== it) card.classList.add('ss-more');
+      card.style.setProperty('--ss', App.ss.color(items, it));
+      return card;
+    }
+  };
 
   // expose set-type helpers for workout view
   App.SET_TYPES = SET_TYPES;
