@@ -1,5 +1,5 @@
 /* Lift service worker — offline-first app shell */
-const CACHE = 'lift-v3';
+const CACHE = 'lift-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const ASSETS = [
   './js/push.js',
   './js/coach.js',
   './js/backup.js',
+  './js/hevy-import.js',
   './js/views/home.js',
   './js/views/routine-edit.js',
   './js/views/workout.js',

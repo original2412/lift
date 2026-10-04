@@ -130,6 +130,10 @@
         el('span', { html: svg(ICON.upload), style: { color: 'var(--accent)' } }),
         el('div.grow', null, [el('div.name', { text: 'Import backup' }), el('div.meta', { text: 'Restore or merge from a JSON file' })])
       ]));
+      dcard.appendChild(el('button.list-item', { style: { width: '100%', textAlign: 'left' }, onclick: importHevy }, [
+        el('span', { html: svg(ICON.upload), style: { color: 'var(--accent)' } }),
+        el('div.grow', null, [el('div.name', { text: 'Import from Hevy' }), el('div.meta', { text: 'Your workout history from Hevy’s CSV export' })])
+      ]));
       dcard.appendChild(el('button.list-item', { style: { width: '100%', textAlign: 'left' }, onclick: reseed }, [
         el('span', { html: svg(ICON.dumbbell) }),
         el('div.grow', null, [el('div.name', { text: 'Restore default exercises' }), el('div.meta', { text: 'Re-add any built-ins you deleted' })])
@@ -198,6 +202,56 @@
     } catch (e) {
       UI.toast(e.message || 'Import failed');
     }
+  }
+
+  // Hevy → Profile → Settings → Export & import data → Export workouts (CSV)
+  function importHevy() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,text/csv,text/comma-separated-values';
+    input.onchange = function () {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function () {
+        let p;
+        try { p = App.hevyImport.plan(String(reader.result)); }
+        catch (e) { UI.toast(e.message || 'Couldn’t read that file', 3500); return; }
+        hevyPreview(p);
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }
+
+  function hevyPreview(p) {
+    const fmt = function (t) { return U.fmtDate(t, { day: 'numeric', month: 'short', year: 'numeric' }); };
+    const lines = [];
+    if (p.add.length) {
+      lines.push(U.pluralize(p.add.length, 'workout') + ', ' + U.pluralize(p.sets, 'set') + ' (' + fmt(p.add[0].startedAt) + ' – ' + fmt(p.add[p.add.length - 1].startedAt) + ')');
+    }
+    if (p.skip.length) lines.push(U.pluralize(p.skip.length, 'workout') + ' skipped — already in Lift');
+    if (p.created.length) lines.push('New exercises: ' + p.created.map(function (e) { return e.name; }).join(', '));
+    const renamed = Object.keys(p.mapped);
+    let ref;
+    ref = UI.sheet({
+      title: p.add.length ? 'Import from Hevy' : 'Nothing new to import',
+      body: el('div', null, [
+        el('ul.change-list', null, lines.map(function (t) { return el('li', { text: t }); })),
+        renamed.length ? el('details', { style: { margin: '10px 2px 0' } }, [
+          el('summary.muted.tiny', { text: 'Matched ' + U.pluralize(renamed.length, 'Hevy exercise') + ' to Lift’s' }),
+          el('div.faint.tiny', { style: { marginTop: '6px', lineHeight: '1.6' } }, renamed.map(function (h) {
+            return el('div', { text: h + ' → ' + p.mapped[h] });
+          }))
+        ]) : null,
+        p.add.length ? el('p.faint.tiny', { text: 'Your history, charts, records and the Coach’s targets will include these workouts. Importing the same file again won’t duplicate anything.', style: { margin: '10px 2px 0', lineHeight: '1.5' } }) : null
+      ]),
+      footer: p.add.length ? el('button.btn.primary', { text: 'Import ' + U.pluralize(p.add.length, 'workout'), onclick: function () {
+        ref.close();
+        App.hevyImport.apply(p);
+        UI.toast('Imported ' + U.pluralize(p.add.length, 'workout'), 3000);
+      } }) : null
+    });
   }
 
   function reseed() {
