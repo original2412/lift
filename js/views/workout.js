@@ -490,6 +490,9 @@
         el('button.icon-btn', { html: svg(ICON.dots), 'aria-label': 'Options', onclick: function () { itemMenu(it, idx); } })
       ]));
 
+      const pinned = UI.pinnedNote(ex);
+      if (pinned) card.appendChild(pinned);
+
       if (it.notes || it._showNote) {
         card.appendChild(el('input.ex-note', {
           value: it.notes || '', placeholder: 'Note…',
@@ -630,6 +633,7 @@
           onclick: function () { toggleDone(st, si); }
         })));
 
+        swipeToDelete(tr, function () { removeSet(si); });
         const rows = [tr];
         if (st.done && st._pr) {
           rows.push(el('tr', null, el('td', { colspan: 5, style: { paddingTop: '0' } },
@@ -657,6 +661,18 @@
             persist();
           }
         });
+      }
+
+      function removeSet(si) {
+        const removed = it.sets.splice(si, 1)[0];
+        if (it._effortIdx === si) it._effortIdx = null;
+        else if (it._effortIdx > si) it._effortIdx--;
+        persist();
+        renderSetRows();
+        UI.toast('Set removed', 0, { label: 'Undo', onClick: function () {
+          it.sets.splice(si, 0, removed);
+          persist(); render();
+        } });
       }
 
       function toggleDone(st, si) {
@@ -763,7 +779,8 @@
 
       function itemMenu(item, i) {
         UI.menu(S.exerciseName(item.exerciseId), [
-          { label: item.notes || item._showNote ? 'Hide note' : 'Add note', icon: ICON.note, onClick: function () {
+          ex ? { label: ex.note ? 'Edit pinned note' : 'Pin a note (every time)', icon: ICON.pin, onClick: function () { UI.editPinnedNote(ex); } } : null,
+          { label: item.notes || item._showNote ? 'Hide note' : 'Note for today', icon: ICON.note, onClick: function () {
             item._showNote = !(item.notes || item._showNote); if (!item._showNote) {} render();
           } },
           { label: 'Rest timer: ' + (item.restSec ? U.fmtClock(item.restSec) : 'off'), icon: ICON.timer, onClick: function () { pickRest(item); } },
@@ -776,7 +793,13 @@
             App.exercisePicker({ onDone: function (ids) { if (ids[0]) { item.exerciseId = ids[0]; persist(); render(); } } });
           } },
           { label: 'Remove exercise', icon: ICON.trash, danger: true, onClick: function () {
+            const before = a.items.slice();
             a.items.splice(i, 1); App.ss.tidy(a.items); persist(); render();
+            UI.toast(S.exerciseName(item.exerciseId) + ' removed', 0, { label: 'Undo', onClick: function () {
+              a.items.length = 0;
+              Array.prototype.push.apply(a.items, before);
+              persist(); render();
+            } });
           } }
         ]));
       }
@@ -955,6 +978,49 @@
   }, { tab: 'home', fullscreen: true });
 
   // ---------------- helpers ----------------
+  // Swipe a set row left to delete it (like Hevy). Vertical scrolling wins
+  // when the gesture is mostly vertical.
+  function swipeToDelete(tr, onDelete) {
+    let x0 = 0, y0 = 0, dx = 0, mode = null;
+    const cells = function () { return Array.prototype.slice.call(tr.children); };
+    const move = function (px, anim) {
+      cells().forEach(function (td) {
+        td.style.transition = anim ? 'transform 0.18s ease' : 'none';
+        td.style.transform = px ? 'translateX(' + px + 'px)' : '';
+      });
+    };
+    tr.addEventListener('touchstart', function (e) {
+      if (e.target.tagName === 'INPUT' && document.activeElement === e.target) return;
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; mode = 'pending';
+    }, { passive: true });
+    tr.addEventListener('touchmove', function (e) {
+      if (!mode) return;
+      const mx = e.touches[0].clientX - x0, my = e.touches[0].clientY - y0;
+      if (mode === 'pending') {
+        if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+        mode = Math.abs(mx) > Math.abs(my) * 1.3 && mx < 0 ? 'swipe' : null;
+        if (!mode) return;
+        tr.classList.add('swiping');
+      }
+      dx = Math.min(0, mx);
+      tr.classList.toggle('armed', dx < -90);
+      move(dx, false);
+    }, { passive: true });
+    const end = function () {
+      if (mode !== 'swipe') { mode = null; return; }
+      mode = null;
+      if (dx < -90) {
+        move(-tr.offsetWidth, true);
+        setTimeout(onDelete, 160);
+      } else {
+        move(0, true);
+        setTimeout(function () { tr.classList.remove('swiping', 'armed'); }, 180);
+      }
+    };
+    tr.addEventListener('touchend', end);
+    tr.addEventListener('touchcancel', end);
+  }
+
   // A short burst of confetti (canvas, ~2.5s, removes itself).
   function confetti(n) {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;

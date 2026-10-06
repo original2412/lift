@@ -682,3 +682,23 @@ tr.done .check { background: var(--good); border-color: var(--good); color: #052
 .goal-note { display: flex; align-items: center; gap: 10px; }
 .goal-note svg { width: 22px; height: 22px; color: var(--flame); fill: currentColor; stroke: none; flex: 0 0 auto; }
 @media (prefers-reduced-motion: reduce) { .confetti { display: none; } }
+
+/* toast action (Undo) */
+.toast.has-action { display: flex; align-items: center; gap: 14px; text-align: left; padding: 8px 8px 8px 16px; }
+.toast-act { color: var(--accent); font-weight: 800; font-size: 14px; padding: 6px 10px; border-radius: 9px; background: var(--accent-soft); }
+
+/* pinned exercise note */
+.pin-note {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; margin: 2px 0 8px;
+  padding: 7px 10px; border-radius: 10px; font-size: 13px; line-height: 1.4; font-weight: 600;
+  background: color-mix(in srgb, var(--pr) 12%, transparent); color: var(--text);
+}
+.pin-note svg { width: 15px; height: 15px; margin-top: 2px; fill: none; stroke: var(--pr); stroke-width: 2; stroke-linejoin: round; }
+.pin-note .grow { flex: 1; min-width: 0; white-space: pre-wrap; }
+.pin-note.empty-note { background: none; border: 1px dashed var(--line); color: var(--text-faint); font-weight: 500; margin-bottom: 14px; }
+
+/* swipe a set left to delete */
+.set-grid tr.swiping { background: color-mix(in srgb, var(--bad) 18%, transparent); }
+.set-grid tr.swiping.armed { background: color-mix(in srgb, var(--bad) 40%, transparent); }
+.set-grid tr.swiping td { background: var(--bg-elev); }
+.set-grid tr.swiping.done td { background: color-mix(in srgb, var(--good) 14%, var(--bg-elev)); }

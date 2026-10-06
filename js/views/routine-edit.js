@@ -81,6 +81,8 @@
         el('button.icon-btn', { html: svg(ICON.dots), 'aria-label': 'Options', onclick: function () { itemMenu(it, idx); } })
       ]));
 
+      const pinned = UI.pinnedNote(ex);
+      if (pinned) card.appendChild(pinned);
       card.appendChild(el('input.ex-note', {
         value: it.notes || '', placeholder: 'Add note…',
         oninput: function (e) { it.notes = e.target.value; }

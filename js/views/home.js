@@ -251,8 +251,9 @@
         S.duplicateRoutine(r.id); UI.toast('Routine duplicated');
       } },
       { label: 'Delete routine', icon: ICON.trash, danger: true, onClick: function () {
-        UI.confirm({ title: 'Delete “' + r.name + '”?', message: 'This cannot be undone. Your workout history stays.', confirmText: 'Delete', danger: true })
-          .then(function (ok) { if (ok) { S.deleteRoutine(r.id); UI.toast('Routine deleted'); } });
+        const copy = U.deepClone(r);
+        S.deleteRoutine(r.id);
+        UI.toast('“' + r.name + '” deleted', 0, { label: 'Undo', onClick: function () { S.saveRoutine(copy); } });
       } }
     ]);
   }

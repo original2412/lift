@@ -75,6 +75,7 @@
     note: '<path d="M4 4h16v12l-4 4H4Z"/><path d="M16 20v-4h4"/>',
     download: '<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/>',
     upload: '<path d="M12 21V9m0 0 4 4m-4-4-4 4M4 3h16"/>',
+    pin: '<path d="M12 17v5M9 3h6l-1 6 4 4H6l4-4Z"/>',
     link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
     flame: '<path d="M12 22c4 0 7-2.7 7-7 0-3.5-2.3-6-4-8-.3 2-1.3 3.3-2.5 3.8C12.8 7.5 11 4.5 8.5 2 8.8 5.5 5 8.6 5 15c0 4.3 3 7 7 7Z"/>',
     flame2: '<path d="M12 22c-2.2 0-3.5-1.6-3.5-3.5 0-2.4 2-3.4 2.5-5.5 1.6 1.2 4.5 3 4.5 5.5 0 1.9-1.3 3.5-3.5 3.5Z"/>'
@@ -82,10 +83,22 @@
 
   // ---- toast ----
   let toastTimer;
-  UI.toast = function (msg, ms) {
+  // UI.toast(msg, ms, { label: 'Undo', onClick }) adds a button and stays
+  // up longer.
+  UI.toast = function (msg, ms, action) {
     const t = document.getElementById('toast');
     if (!t) return;
     t.textContent = msg;
+    t.classList.toggle('has-action', !!action);
+    if (action) {
+      ms = ms || 5000;
+      t.appendChild(UI.el('button.toast-act', { text: action.label || 'Undo', onclick: function () {
+        clearTimeout(toastTimer);
+        t.classList.remove('in');
+        setTimeout(function () { t.hidden = true; }, 250);
+        action.onClick();
+      } }));
+    }
     t.hidden = false;
     requestAnimationFrame(function () { t.classList.add('in'); });
     clearTimeout(toastTimer);
@@ -93,6 +106,25 @@
       t.classList.remove('in');
       setTimeout(function () { t.hidden = true; }, 250);
     }, ms || 1900);
+  };
+
+  // Pinned note on an exercise: shown every time it comes up in a workout
+  // (seat height, grip, cable setting…).
+  UI.editPinnedNote = function (ex) {
+    if (!ex) return;
+    UI.prompt({ title: 'Pinned note · ' + ex.name, value: ex.note || '', placeholder: 'e.g. Seat 4, rope attachment', confirmText: 'Save' })
+      .then(function (v) {
+        if (v == null) return;
+        App.store.updateExercise(ex.id, { note: v.trim() });
+        UI.toast(v.trim() ? 'Note pinned' : 'Note removed');
+      });
+  };
+  UI.pinnedNote = function (ex) {
+    if (!ex || !ex.note) return null;
+    return UI.el('button.pin-note', { onclick: function () { UI.editPinnedNote(ex); } }, [
+      UI.el('span', { html: UI.svg(UI.ICON.pin) }),
+      UI.el('span.grow', { text: ex.note })
+    ]);
   };
 
   // ---- exercise thumbnail (photo if we have one, else initials avatar) ----

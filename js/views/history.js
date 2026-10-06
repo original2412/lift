@@ -202,8 +202,10 @@
         });
       } },
       { label: 'Delete workout', icon: ICON.trash, danger: true, onClick: function () {
-        UI.confirm({ title: 'Delete this workout?', message: 'It will be removed from your history and stats.', confirmText: 'Delete', danger: true })
-          .then(function (ok) { if (ok) { S.deleteWorkout(w.id); R.back('/history'); } });
+        const copy = U.deepClone(w);
+        S.deleteWorkout(w.id);
+        R.back('/history');
+        UI.toast('Workout deleted', 0, { label: 'Undo', onClick: function () { S.commitWorkout(copy); } });
       } }
     ]);
   }

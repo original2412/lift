@@ -225,7 +225,11 @@
         el('button.icon-btn', { html: svg(ICON.dots), 'aria-label': 'Options', onclick: function () { detailMenu(ex); } })
       ]));
       if (ex.image) v.appendChild(el('img.ex-hero', { src: ex.image, alt: '' }));
-      v.appendChild(el('div.muted.tiny', { text: ex.primary + ' · ' + ex.equipment + (ex.isCustom ? ' · custom' : ''), style: { margin: '0 2px 14px' } }));
+      v.appendChild(el('div.muted.tiny', { text: ex.primary + ' · ' + ex.equipment + (ex.isCustom ? ' · custom' : ''), style: { margin: '0 2px 10px' } }));
+      v.appendChild(UI.pinnedNote(ex) || el('button.pin-note.empty-note', { onclick: function () { UI.editPinnedNote(ex); } }, [
+        el('span', { html: svg(ICON.pin) }),
+        el('span.grow', { text: 'Pin a note — shown every time you do this exercise' })
+      ]));
 
       const bests = S.exerciseBests(id);
       const series = S.exerciseSeries(id);
